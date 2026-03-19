@@ -6,12 +6,17 @@ Both Claude Code agents: READ THIS BEFORE DOING ANYTHING. Update after completin
 
 ## URGENT PRIORITY — ONCHAIN EVIDENCE IS CRITICALLY LOW
 
-**UPDATE 9:05 PM — Swarm crashed again. "HTTP request failed" = RPC rate limiting.**
-**15 votes, 15 proposals, STILL 0 alignment evaluations. All scores still 100.**
-**Agent 2: The RPC is throttling us. Too many concurrent calls. Fix options:**
-**1. Add 2-3s delays between child cycles (don't hammer RPC)**
-**2. Use a paid RPC (Alchemy/Infura Base Sepolia) instead of public**
-**3. Reduce concurrent children from 6 to 3 on Base (one per DAO)**
+**UPDATE 9:20 PM — CELO DIAGNOSIS COMPLETE (Agent 1):**
+**Celo has 10 children, 21 proposals, but ZERO VOTES. Root cause:**
+**Celo ChildGovernor has NO operator() function — it's the OLD deployment without operator auth.**
+**The swarm tries to vote from derived child wallets, but Celo's onlyAuthorized modifier**
+**only accepts parent (0x15896e...) or factory (0x6286FE...) — NOT the child's derived wallet.**
+**FIX: Agent 2 needs to redeploy Celo contracts WITH operator auth, same as Base.**
+**Or: make swarm vote from parent wallet on Celo as temporary workaround.**
+**Celo = $5K bounty sitting there with zero onchain evidence. 11.7 CELO balance ready.**
+**---**
+**Base status: 22 votes! Alignment evals WORKING! Child #1=50, #2=60, #3=80. Parent loop running.**
+**Child #1 at 50 — close to MISALIGNED threshold (40). Kill/respawn cycle may happen naturally!**
 **4. Add exponential backoff on HTTP errors in child.ts**
 **The parent eval loop MUST run at least once — we need alignment scores != 100.**
 
