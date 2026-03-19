@@ -31,6 +31,17 @@ export function useTimeline() {
 
   const fetchData = useCallback(async () => {
     try {
+      // First get active children so we can fetch their events
+      let childAddresses: `0x${string}`[] = [];
+      try {
+        const rawChildren = await publicClient.readContract({
+          address: CONTRACTS.SpawnFactory.address,
+          abi: CONTRACTS.SpawnFactory.abi,
+          functionName: "getActiveChildren",
+        });
+        childAddresses = rawChildren.map((c) => c.childAddr);
+      } catch {}
+
       const [
         spawnedLogs,
         terminatedLogs,
@@ -106,6 +117,44 @@ export function useTimeline() {
         }),
       ]);
 
+      // Fetch VoteCast + AlignmentUpdated from each child contract
+      const voteCastLogs: typeof spawnedLogs = [];
+      const alignmentLogs: typeof spawnedLogs = [];
+      for (const addr of childAddresses) {
+        try {
+          const [votes, aligns] = await Promise.all([
+            publicClient.getLogs({
+              address: addr,
+              event: {
+                type: "event",
+                name: "VoteCast",
+                inputs: [
+                  { name: "proposalId", type: "uint256", indexed: true },
+                  { name: "support", type: "uint8", indexed: false },
+                  { name: "encryptedRationale", type: "bytes", indexed: false },
+                ],
+              },
+              fromBlock: BigInt(0),
+              toBlock: "latest",
+            }),
+            publicClient.getLogs({
+              address: addr,
+              event: {
+                type: "event",
+                name: "AlignmentUpdated",
+                inputs: [
+                  { name: "newScore", type: "uint256", indexed: false },
+                ],
+              },
+              fromBlock: BigInt(0),
+              toBlock: "latest",
+            }),
+          ]);
+          voteCastLogs.push(...(votes as any[]));
+          alignmentLogs.push(...(aligns as any[]));
+        } catch {}
+      }
+
       const allEvents: TimelineEvent[] = [
         ...spawnedLogs.map((log) => ({
           id: `spawned-${log.transactionHash}-${log.logIndex}`,
@@ -158,6 +207,27 @@ export function useTimeline() {
           data: {
             from: log.args?.from,
             amount: log.args?.amount?.toString(),
+          },
+        })),
+        ...voteCastLogs.map((log: any) => ({
+          id: `vote-${log.transactionHash}-${log.logIndex}`,
+          type: "VoteCast" as EventType,
+          blockNumber: log.blockNumber ?? BigInt(0),
+          transactionHash: log.transactionHash ?? ("0x" as `0x${string}`),
+          data: {
+            childAddr: log.address,
+            proposalId: log.args?.proposalId?.toString(),
+            support: Number(log.args?.support ?? 0),
+          },
+        })),
+        ...alignmentLogs.map((log: any) => ({
+          id: `alignment-${log.transactionHash}-${log.logIndex}`,
+          type: "AlignmentUpdated" as EventType,
+          blockNumber: log.blockNumber ?? BigInt(0),
+          transactionHash: log.transactionHash ?? ("0x" as `0x${string}`),
+          data: {
+            childAddr: log.address,
+            newScore: log.args?.newScore?.toString(),
           },
         })),
       ];

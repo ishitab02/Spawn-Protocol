@@ -70,6 +70,14 @@ function formatEventData(event: TimelineEvent): string {
       return `Governance values updated: "${String(d.values ?? "").slice(0, 80)}${String(d.values ?? "").length > 80 ? "…" : ""}"`;
     case "Deposited":
       return `Deposit of ${d.amount ? (Number(d.amount) / 1e18).toFixed(4) : "?"} ETH from ${formatAddress(String(d.from))}`;
+    case "VoteCast": {
+      const supportLabels = ["AGAINST", "FOR", "ABSTAIN"];
+      return `${formatAddress(String(d.childAddr))} voted ${supportLabels[Number(d.support)] ?? "?"} on proposal #${d.proposalId}`;
+    }
+    case "AlignmentUpdated":
+      return `${formatAddress(String(d.childAddr))} alignment updated to ${d.newScore}/100`;
+    case "RationaleRevealed":
+      return `Rationale revealed for proposal #${d.proposalId}`;
     default:
       return JSON.stringify(d);
   }
