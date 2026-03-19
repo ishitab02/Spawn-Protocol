@@ -20,15 +20,15 @@ import { reasonAboutProposal, evaluateAlignment } from "./venice.js";
 import { toHex, parseEther } from "viem";
 import type { DeployedAddresses } from "./types.js";
 
-// ========= UPDATE THESE AFTER DEPLOYMENT =========
+// ========= Base Sepolia Deployed Addresses =========
 const ADDRESSES: DeployedAddresses = {
-  mockGovernor: "0x0000000000000000000000000000000000000000",
-  parentTreasury: "0x0000000000000000000000000000000000000000",
-  childImplementation: "0x0000000000000000000000000000000000000000",
-  spawnFactory: "0x0000000000000000000000000000000000000000",
-  timeLock: "0x0000000000000000000000000000000000000000",
+  mockGovernor: "0xA90f96DB17FfA5AfB02b90Fc8bA667F735198306",
+  parentTreasury: "0x2BC402E4dF978812d28D4652b211b6a2243a57aA",
+  childImplementation: "0x34b1761E941e762994B6089D1b8681eFE527a393",
+  spawnFactory: "0x427aa82cD76e57d41eF8f685d7f1A76A415fA75d",
+  timeLock: "0x1bDeaE9e843188DBF31bf69b65809da485174ea3",
 };
-// ==================================================
+// ====================================================
 
 async function main() {
   console.log("=== Spawn Protocol Demo ===\n");
