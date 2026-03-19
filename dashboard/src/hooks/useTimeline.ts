@@ -31,6 +31,10 @@ export function useTimeline() {
 
   const fetchData = useCallback(async () => {
     try {
+      // Get a safe fromBlock — public RPCs limit getLogs to 10k block range
+      const currentBlock = await publicClient.getBlockNumber();
+      const startBlock = currentBlock > BigInt(9999) ? currentBlock - BigInt(9999) : BigInt(0);
+
       // First get active children so we can fetch their events
       let childAddresses: `0x${string}`[] = [];
       try {
@@ -61,7 +65,7 @@ export function useTimeline() {
               { name: "budget", type: "uint256", indexed: false },
             ],
           },
-          fromBlock: BigInt(0),
+          fromBlock: startBlock,
           toBlock: "latest",
         }),
         publicClient.getLogs({
@@ -75,7 +79,7 @@ export function useTimeline() {
               { name: "fundsReturned", type: "uint256", indexed: false },
             ],
           },
-          fromBlock: BigInt(0),
+          fromBlock: startBlock,
           toBlock: "latest",
         }),
         publicClient.getLogs({
@@ -89,7 +93,7 @@ export function useTimeline() {
               { name: "amount", type: "uint256", indexed: false },
             ],
           },
-          fromBlock: BigInt(0),
+          fromBlock: startBlock,
           toBlock: "latest",
         }),
         publicClient.getLogs({
@@ -99,7 +103,7 @@ export function useTimeline() {
             name: "ValuesUpdated",
             inputs: [{ name: "values", type: "string", indexed: false }],
           },
-          fromBlock: BigInt(0),
+          fromBlock: startBlock,
           toBlock: "latest",
         }),
         publicClient.getLogs({
@@ -112,7 +116,7 @@ export function useTimeline() {
               { name: "amount", type: "uint256", indexed: false },
             ],
           },
-          fromBlock: BigInt(0),
+          fromBlock: startBlock,
           toBlock: "latest",
         }),
       ]);
@@ -134,7 +138,7 @@ export function useTimeline() {
                   { name: "encryptedRationale", type: "bytes", indexed: false },
                 ],
               },
-              fromBlock: BigInt(0),
+              fromBlock: startBlock,
               toBlock: "latest",
             }),
             publicClient.getLogs({
@@ -146,7 +150,7 @@ export function useTimeline() {
                   { name: "newScore", type: "uint256", indexed: false },
                 ],
               },
-              fromBlock: BigInt(0),
+              fromBlock: startBlock,
               toBlock: "latest",
             }),
           ]);

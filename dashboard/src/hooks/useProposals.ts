@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { publicClient } from "@/lib/client";
-import { GOVERNORS } from "@/lib/contracts";
+import { CONTRACTS, GOVERNORS } from "@/lib/contracts";
+import { SpawnFactoryABI, ChildGovernorABI } from "@/lib/abis";
 
 export interface Proposal {
   id: bigint;
@@ -101,6 +102,41 @@ export function useProposals() {
           }
         })
       );
+
+      // Aggregate votes from ChildGovernor contracts (since children
+      // record votes locally, not on MockGovernor)
+      try {
+        const rawChildren = await publicClient.readContract({
+          address: CONTRACTS.SpawnFactory.address,
+          abi: SpawnFactoryABI,
+          functionName: "getActiveChildren",
+        });
+
+        for (const child of rawChildren) {
+          try {
+            const history = await publicClient.readContract({
+              address: child.childAddr,
+              abi: ChildGovernorABI,
+              functionName: "getVotingHistory",
+            });
+
+            for (const vote of history) {
+              // Find matching proposal across all governors
+              const govAddr = child.governance.toLowerCase();
+              const matching = allProposals.find(
+                (p) =>
+                  p.governorAddress.toLowerCase() === govAddr &&
+                  p.id === vote.proposalId
+              );
+              if (matching) {
+                if (vote.support === 1) matching.forVotes += BigInt(1);
+                else if (vote.support === 0) matching.againstVotes += BigInt(1);
+                else matching.abstainVotes += BigInt(1);
+              }
+            }
+          } catch {}
+        }
+      } catch {}
 
       // Sort: newest first by startTime
       allProposals.sort((a, b) => {
