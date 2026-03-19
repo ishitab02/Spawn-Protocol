@@ -448,7 +448,7 @@ npx shadcn@latest init -d
 - [x] SpawnFactory written + tested
 - [x] ChildGovernor written + tested
 - [x] ParentTreasury written + tested
-- [x] Integration test passing (23/23)
+- [x] Integration test passing (25/25, includes cap enforcement tests)
 - [x] Deployed to Base Sepolia
 - [ ] Deployed to Celo Sepolia (RPC down globally, retrying)
 - [x] Agent runtime scaffolded
