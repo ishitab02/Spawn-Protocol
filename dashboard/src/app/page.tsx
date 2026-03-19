@@ -9,6 +9,10 @@ export default function SwarmPage() {
 
   const activeCount = children.filter((c) => c.active).length;
   const totalCount = children.length;
+  const totalVotes = children.reduce((sum, c) => sum + Number(c.voteCount), 0);
+  const avgAlignment = activeCount > 0
+    ? Math.round(children.filter((c) => c.active).reduce((sum, c) => sum + Number(c.alignmentScore), 0) / activeCount)
+    : 0;
 
   return (
     <div className="p-8">
@@ -28,6 +32,18 @@ export default function SwarmPage() {
                 {loading ? "…" : activeCount}
               </div>
               <div className="text-xs text-gray-500 uppercase tracking-wider">Active</div>
+            </div>
+            <div>
+              <div className="text-3xl font-mono font-bold text-blue-400">
+                {loading ? "…" : totalVotes}
+              </div>
+              <div className="text-xs text-gray-500 uppercase tracking-wider">Votes</div>
+            </div>
+            <div>
+              <div className={`text-3xl font-mono font-bold ${avgAlignment >= 70 ? "text-green-400" : avgAlignment >= 40 ? "text-yellow-400" : "text-red-400"}`}>
+                {loading ? "…" : `${avgAlignment}%`}
+              </div>
+              <div className="text-xs text-gray-500 uppercase tracking-wider">Alignment</div>
             </div>
             <div>
               <div className="text-3xl font-mono font-bold text-gray-400">
