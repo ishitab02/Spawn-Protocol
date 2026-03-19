@@ -7,6 +7,7 @@
  */
 
 import { publicClient, account, sendTxAndWait } from "./chain.js";
+import { logParentAction, logChildAction } from "./logger.js";
 import {
   MockGovernorABI,
   ParentTreasuryABI,
@@ -124,6 +125,7 @@ async function main() {
       args: [name, ADDRESSES.mockGovernor, 0n, 200000n],
     });
     console.log(`  Spawned ${name} (tx: ${receipt.transactionHash})`);
+    logParentAction("spawn_child", { name, governance: ADDRESSES.mockGovernor }, { txHash: receipt.transactionHash }, receipt.transactionHash);
   }
 
   const children = (await publicClient.readContract({
@@ -204,6 +206,7 @@ async function main() {
       });
       console.log(`  >> ${child.ensLabel} voted ${decision} on proposal ${p} (tx: ${receipt.transactionHash.slice(0, 18)}...)`);
       console.log(`     Reasoning: ${reasoning.slice(0, 100)}...`);
+      logChildAction(child.ensLabel, "cast_vote", { proposalId: p.toString(), proposalDescription: proposal.description, decision }, { reasoning: reasoning.slice(0, 200), txHash: receipt.transactionHash }, receipt.transactionHash);
     }
     console.log();
   }
@@ -227,12 +230,13 @@ async function main() {
     const label = clamped >= 70 ? "ALIGNED" : clamped >= 40 ? "DRIFTING" : "MISALIGNED";
     console.log(`  ${child.ensLabel}: ${clamped}/100 [${label}]`);
 
-    await sendTxAndWait({
+    const alignReceipt = await sendTxAndWait({
       address: child.childAddr,
       abi: ChildGovernorABI,
       functionName: "updateAlignmentScore",
       args: [BigInt(clamped)],
     });
+    logParentAction("evaluate_alignment", { child: child.ensLabel, votes: historyForEval.length }, { score: clamped, label }, alignReceipt.transactionHash);
   }
   console.log();
 

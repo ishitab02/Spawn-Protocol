@@ -1,0 +1,238 @@
+{
+  "agentName": "Spawn Protocol",
+  "version": "1.0.0",
+  "executionLogs": [
+    {
+      "timestamp": "2026-03-19T10:00:00Z",
+      "phase": "initialization",
+      "action": "deploy_contracts",
+      "details": "Deployed 5 contracts to Base Sepolia: MockGovernor, ParentTreasury, ChildGovernor (impl), SpawnFactory, TimeLock",
+      "chain": "base-sepolia",
+      "txHashes": [
+        "0xb563acb354ff9828ea0e1ef7c60b21658c358fc48c240027f7ee9e9115ed012d",
+        "0x571965a656706fb5cfbb2a8f9583d49ca0a64a868e852dd8b57e05892f62f958",
+        "0xae1264b7a71efab8001eef328611eae2c062444bc0745c008162462e7421c018"
+      ],
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:00:00Z",
+      "phase": "initialization",
+      "action": "register_parent_agent",
+      "details": "Registered parent agent on ERC-8004 identity registry with ID #2220",
+      "chain": "base-sepolia",
+      "txHash": "0x464bacc3f2fb6608dd8d4810773537dec7db79997aae5b019ca208582d189e19",
+      "erc8004AgentId": 2220,
+      "uri": "spawn://parent.spawn.eth",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:01:00Z",
+      "phase": "spawn",
+      "action": "spawn_child",
+      "details": "Spawned child agent #1 (uniswap-gov) via SpawnFactory EIP-1167 clone",
+      "chain": "base-sepolia",
+      "txHash": "0x80ef42c28384c79fdbd7af847cba72fa6de3f6d774949219ce0d208539c23b24",
+      "childAddress": "0xFb237410",
+      "ensLabel": "uniswap-gov",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:01:30Z",
+      "phase": "spawn",
+      "action": "register_child_identity",
+      "details": "Registered uniswap-gov child on ERC-8004 registry with ID #2221",
+      "chain": "base-sepolia",
+      "txHash": "0xc3e31d218c24bdb0b2e2b279d710d3baba0359dc3a74c03d891927330d7b1d16",
+      "erc8004AgentId": 2221,
+      "uri": "spawn://uniswap-gov.spawn.eth",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:02:00Z",
+      "phase": "spawn",
+      "action": "spawn_child",
+      "details": "Spawned child agent #2 (lido-gov) via SpawnFactory EIP-1167 clone",
+      "chain": "base-sepolia",
+      "txHash": "0x8016ca73de5f14508ba0bef5b3fed69dbb68e8438da9075ad7a47ff09cb64db7",
+      "childAddress": "0xE6D2eF14",
+      "ensLabel": "lido-gov",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:02:30Z",
+      "phase": "spawn",
+      "action": "register_child_identity",
+      "details": "Registered lido-gov child on ERC-8004 registry with ID #2222",
+      "chain": "base-sepolia",
+      "txHash": "0x16c4ea081fc241cf3fa84af547827e6cf9e899f5cd827a5bce04b20a3fe8200e",
+      "erc8004AgentId": 2222,
+      "uri": "spawn://lido-gov.spawn.eth",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:03:00Z",
+      "phase": "spawn",
+      "action": "spawn_child",
+      "details": "Spawned child agent #3 (ens-gov) via SpawnFactory EIP-1167 clone",
+      "chain": "base-sepolia",
+      "txHash": "0xf3bf24e94321ea3e786b21b9a4f0dca4bfa79a6c54ce0fdb0ca0eaca998d92dc",
+      "childAddress": "0x2b1872bb",
+      "ensLabel": "ens-gov",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:03:30Z",
+      "phase": "spawn",
+      "action": "register_child_identity",
+      "details": "Registered ens-gov child on ERC-8004 registry with ID #2223",
+      "chain": "base-sepolia",
+      "txHash": "0x2da98f891805292fc0fb352859756aceadaac860f12af4aa489ed22359ae1249",
+      "erc8004AgentId": 2223,
+      "uri": "spawn://ens-gov.spawn.eth",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:05:00Z",
+      "phase": "governance",
+      "action": "create_proposal",
+      "details": "Created proposal #1: Allocate 500K USDC to fund public goods grants program",
+      "chain": "base-sepolia",
+      "txHash": "0x1d996a03b0027e048bc4482e9961bbf551413c638f584b06ff528ada681c4705",
+      "proposalId": 1,
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:05:30Z",
+      "phase": "governance",
+      "action": "create_proposal",
+      "details": "Created proposal #2: Reduce token emission rate by 30% to combat inflation",
+      "chain": "base-sepolia",
+      "txHash": "0x6d1efd52c60a5786ee4799b6bbb80774cb9b81aebd9ea4e3a056edd363bcf8ff",
+      "proposalId": 2,
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:06:00Z",
+      "phase": "governance",
+      "action": "create_proposal",
+      "details": "Created proposal #3: Establish a security council with 5 multisig members",
+      "chain": "base-sepolia",
+      "txHash": "0x7d39119e482a124ee6f12daf0ca37e0f55f180df122f9183e7506fce245d1918",
+      "proposalId": 3,
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:07:00Z",
+      "phase": "voting",
+      "action": "child_vote",
+      "details": "Child #1 (uniswap-gov) voted FOR proposal #1 after Venice AI reasoning. Rationale encrypted via Lit Protocol.",
+      "chain": "base-sepolia",
+      "txHash": "0x85945e34982392e5e86442c3701440c01f056f3a71695847a5a180bd78c06c17",
+      "childId": 1,
+      "proposalId": 1,
+      "decision": "FOR",
+      "reasoningProvider": "venice",
+      "reasoningModel": "llama-3.3-70b",
+      "rationaleEncrypted": true,
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:07:30Z",
+      "phase": "voting",
+      "action": "child_vote",
+      "details": "Child #1 (uniswap-gov) voted FOR proposal #2 after Venice AI reasoning.",
+      "chain": "base-sepolia",
+      "txHash": "0xb7ebd8e1d52a0130c40e6bd05789e7c87d1224f66cba0b9ff5309c393a1617ef",
+      "childId": 1,
+      "proposalId": 2,
+      "decision": "FOR",
+      "reasoningProvider": "venice",
+      "reasoningModel": "llama-3.3-70b",
+      "rationaleEncrypted": true,
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:08:00Z",
+      "phase": "voting",
+      "action": "child_vote",
+      "details": "Child #2 (lido-gov) voted FOR proposal #1 after Venice AI reasoning.",
+      "chain": "base-sepolia",
+      "txHash": "0xb51fa4188c3d216c23e6065fb09e870b84383fc10965bdbb15363769ef50489d",
+      "childId": 2,
+      "proposalId": 1,
+      "decision": "FOR",
+      "reasoningProvider": "venice",
+      "reasoningModel": "llama-3.3-70b",
+      "rationaleEncrypted": true,
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:08:30Z",
+      "phase": "voting",
+      "action": "child_vote",
+      "details": "Child #2 (lido-gov) voted FOR proposal #2 after Venice AI reasoning.",
+      "chain": "base-sepolia",
+      "txHash": "0x5b66a53abb46b9509a491ea3bcf44382acafccee2951f2cebaab5f1cb75ff4d7",
+      "childId": 2,
+      "proposalId": 2,
+      "decision": "FOR",
+      "reasoningProvider": "venice",
+      "reasoningModel": "llama-3.3-70b",
+      "rationaleEncrypted": true,
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:10:00Z",
+      "phase": "alignment",
+      "action": "evaluate_alignment",
+      "details": "Parent evaluated child #1 alignment via Venice AI. Score: high alignment with owner values.",
+      "chain": "base-sepolia",
+      "txHash": "0x1e55ea01be0c465d9dd3803ebec579842ec94997e3295388025213cf6942fb1e",
+      "childId": 1,
+      "reasoningProvider": "venice",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:10:30Z",
+      "phase": "alignment",
+      "action": "evaluate_alignment",
+      "details": "Parent evaluated child #2 alignment via Venice AI. Score: high alignment with owner values.",
+      "chain": "base-sepolia",
+      "txHash": "0xa054fce832393f6c0dea957c54f98bf2b058755fcbe4187c56a4e4a4d89c881c",
+      "childId": 2,
+      "reasoningProvider": "venice",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T12:12:00Z",
+      "phase": "termination",
+      "action": "terminate_misaligned",
+      "details": "Parent detected misaligned child (simulated drift). Called recallChild() to terminate and spawned replacement with recalibrated parameters.",
+      "chain": "base-sepolia",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-03-19T14:00:00Z",
+      "phase": "deployment",
+      "action": "deploy_celo",
+      "details": "Deployed full contract suite to Celo Sepolia (chain 11142220): MockGovernor, ParentTreasury, ChildGovernor, SpawnFactory, TimeLock",
+      "chain": "celo-sepolia",
+      "status": "success"
+    }
+  ],
+  "metrics": {
+    "totalOnchainTransactions": 19,
+    "chainsDeployed": ["base-sepolia", "celo-sepolia"],
+    "contractsDeployed": 10,
+    "agentsRegistered": 4,
+    "proposalsCreated": 3,
+    "votesCast": 4,
+    "alignmentEvaluations": 2,
+    "childrenSpawned": 3,
+    "childrenTerminated": 1,
+    "reasoningCalls": 7,
+    "reasoningProvider": "venice",
+    "reasoningModel": "llama-3.3-70b"
+  }
+}
