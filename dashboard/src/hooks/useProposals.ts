@@ -5,6 +5,12 @@ import { publicClient } from "@/lib/client";
 import { CONTRACTS, GOVERNORS } from "@/lib/contracts";
 import { SpawnFactoryABI, ChildGovernorABI } from "@/lib/abis";
 
+export interface ProposalVoter {
+  childLabel: string;
+  childAddr: `0x${string}`;
+  support: number; // 0=Against, 1=For, 2=Abstain
+}
+
 export interface Proposal {
   id: bigint;
   description: string;
@@ -21,6 +27,11 @@ export interface Proposal {
   governorAddress: `0x${string}`;
   daoColor: string;
   daoBorderColor: string;
+  // Source DAO (parsed from description prefix like "[Arbitrum Core — Real Governance via Tally]")
+  sourceDaoName: string | null;
+  tallySource: boolean;
+  // Which children voted on this proposal
+  voters: ProposalVoter[];
   // Unique key across DAOs
   uid: string;
 }
@@ -76,9 +87,14 @@ export function useProposals() {
                   }),
                 ]);
 
+                // Parse source DAO from description prefix like "[Arbitrum Core — Real Governance via Tally]"
+                const desc = rawProposal.description || "";
+                const tallyMatch = desc.match(/^\[(.+?)\s*[—–-]\s*Real Governance via Tally\]/);
+                const sourceDaoName = tallyMatch ? tallyMatch[1] : null;
+
                 return {
                   id: rawProposal.id,
-                  description: rawProposal.description,
+                  description: desc,
                   startTime: rawProposal.startTime,
                   endTime: rawProposal.endTime,
                   forVotes: rawProposal.forVotes,
@@ -91,6 +107,9 @@ export function useProposals() {
                   governorAddress: gov.address,
                   daoColor: gov.color,
                   daoBorderColor: gov.borderColor,
+                  sourceDaoName,
+                  tallySource: !!tallyMatch,
+                  voters: [],
                   uid: `${gov.slug}-${rawProposal.id.toString()}`,
                 } satisfies Proposal;
               })
@@ -132,6 +151,11 @@ export function useProposals() {
                 if (vote.support === 1) matching.forVotes += BigInt(1);
                 else if (vote.support === 0) matching.againstVotes += BigInt(1);
                 else matching.abstainVotes += BigInt(1);
+                matching.voters.push({
+                  childLabel: child.ensLabel || "unknown",
+                  childAddr: child.childAddr,
+                  support: vote.support,
+                });
               }
             }
           } catch {}

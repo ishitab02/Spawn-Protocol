@@ -4,11 +4,38 @@ import {
   proposalStateLabel,
   proposalStateColor,
   formatTimestamp,
+  formatAddress,
+  explorerAddress,
 } from "@/lib/contracts";
 import type { Proposal } from "@/hooks/useProposals";
 
 interface ProposalCardProps {
   proposal: Proposal;
+}
+
+const TALLY_DAO_SLUGS: Record<string, string> = {
+  "Arbitrum Core": "arbitrum",
+  "Arbitrum Treasury": "arbitrum",
+  "Optimism": "optimism",
+  "ZKsync": "zksync",
+  "Uniswap": "uniswap",
+  "Compound": "compound",
+  "ENS": "ens",
+  "Aave": "aave",
+  "Lido": "lido",
+  "MakerDAO": "makerdao",
+};
+
+function supportLabel(support: number): string {
+  if (support === 1) return "FOR";
+  if (support === 0) return "AGAINST";
+  return "ABSTAIN";
+}
+
+function supportColor(support: number): string {
+  if (support === 1) return "text-green-400";
+  if (support === 0) return "text-red-400";
+  return "text-yellow-400";
 }
 
 export function ProposalCard({ proposal }: ProposalCardProps) {
@@ -39,6 +66,21 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
     return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
   }
 
+  // Clean description — remove the source prefix for display
+  let displayDesc = proposal.description || "(No description)";
+  const prefixMatch = displayDesc.match(/^\[.+?\]\s*/);
+  if (prefixMatch) {
+    displayDesc = displayDesc.slice(prefixMatch[0].length);
+  }
+  // Truncate long descriptions
+  if (displayDesc.length > 300) {
+    displayDesc = displayDesc.slice(0, 300) + "...";
+  }
+
+  // Tally link for source DAO
+  const tallySlug = proposal.sourceDaoName ? TALLY_DAO_SLUGS[proposal.sourceDaoName] : null;
+  const tallyUrl = tallySlug ? `https://www.tally.xyz/gov/${tallySlug}` : null;
+
   return (
     <div className="border border-gray-800 rounded-lg p-4 bg-[#0d0d14] hover:bg-[#12121c] transition-all">
       {/* Header */}
@@ -48,9 +90,27 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
             <span className="font-mono text-xs text-gray-600">
               #{proposal.id.toString()}
             </span>
+            {/* Our MockGovernor DAO */}
             {proposal.daoName && (
               <span className={`text-xs border rounded px-1.5 py-0.5 font-mono font-semibold ${proposal.daoColor ?? "text-gray-400"} ${proposal.daoBorderColor ?? "border-gray-700"}`}>
                 {proposal.daoName}
+              </span>
+            )}
+            {/* Source DAO from Tally */}
+            {proposal.sourceDaoName && (
+              <span className="text-xs border border-cyan-400/30 bg-cyan-400/5 text-cyan-400 rounded px-1.5 py-0.5 font-mono flex items-center gap-1">
+                {tallyUrl ? (
+                  <a href={tallyUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                    {proposal.sourceDaoName} ↗
+                  </a>
+                ) : (
+                  proposal.sourceDaoName
+                )}
+              </span>
+            )}
+            {proposal.tallySource && (
+              <span className="text-[10px] border border-gray-700 text-gray-500 rounded px-1 py-0.5 font-mono uppercase">
+                via Tally
               </span>
             )}
             <span
@@ -65,7 +125,7 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
             )}
           </div>
           <p className="text-sm text-gray-200 leading-relaxed">
-            {proposal.description || "(No description)"}
+            {displayDesc}
           </p>
         </div>
       </div>
@@ -95,14 +155,16 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
           </div>
           <div className="flex gap-4 mt-1.5 text-xs font-mono">
             <span className="text-green-400">
-              FOR: {proposal.forVotes.toString()} ({forPct.toFixed(1)}%)
+              FOR: {proposal.forVotes.toString()} ({forPct.toFixed(0)}%)
             </span>
             <span className="text-red-400">
-              AGAINST: {proposal.againstVotes.toString()} ({againstPct.toFixed(1)}%)
+              AGAINST: {proposal.againstVotes.toString()} ({againstPct.toFixed(0)}%)
             </span>
-            <span className="text-yellow-400">
-              ABSTAIN: {proposal.abstainVotes.toString()} ({abstainPct.toFixed(1)}%)
-            </span>
+            {Number(proposal.abstainVotes) > 0 && (
+              <span className="text-yellow-400">
+                ABSTAIN: {proposal.abstainVotes.toString()} ({abstainPct.toFixed(0)}%)
+              </span>
+            )}
           </div>
         </div>
       ) : (
@@ -112,10 +174,38 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
         </div>
       )}
 
-      {/* Timestamps */}
-      <div className="flex gap-4 text-xs text-gray-600 font-mono">
+      {/* Voter breakdown */}
+      {proposal.voters.length > 0 && (
+        <div className="mb-3 border-t border-gray-800 pt-2">
+          <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1.5">Agent Votes</p>
+          <div className="flex flex-wrap gap-2">
+            {proposal.voters.map((v, i) => (
+              <span
+                key={i}
+                className={`text-xs font-mono border rounded px-1.5 py-0.5 ${supportColor(v.support)} border-gray-700 bg-gray-900`}
+                title={`${v.childAddr}`}
+              >
+                {v.childLabel || formatAddress(v.childAddr)}: {supportLabel(v.support)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Timestamps + Governor link */}
+      <div className="flex gap-4 text-xs text-gray-600 font-mono items-center">
         <span>Start: {formatTimestamp(proposal.startTime)}</span>
         <span>End: {formatTimestamp(proposal.endTime)}</span>
+        <span className="ml-auto">
+          <a
+            href={explorerAddress(proposal.governorAddress)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-gray-600 hover:text-gray-400 transition-colors"
+          >
+            Governor: {formatAddress(proposal.governorAddress)} ↗
+          </a>
+        </span>
       </div>
     </div>
   );
