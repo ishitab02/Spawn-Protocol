@@ -1,0 +1,21 @@
+{
+  "name": "spawn-protocol-agent",
+  "version": "1.0.0",
+  "description": "Autonomous DAO governance agent swarm",
+  "type": "module",
+  "scripts": {
+    "parent": "tsx src/parent.ts",
+    "child": "tsx src/child.ts",
+    "demo": "tsx src/demo.ts"
+  },
+  "dependencies": {
+    "openai": "^4.77.0",
+    "viem": "^2.23.0",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}
