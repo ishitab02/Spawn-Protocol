@@ -66,15 +66,12 @@ export function AgentCard({ child }: AgentCardProps) {
           <p className="font-mono text-sm text-green-400 font-semibold truncate">
             {ensDisplay}
           </p>
-          <a
-            href={explorerAddress(child.childAddr)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-mono text-xs text-gray-500 hover:text-gray-300 transition-colors"
-            onClick={(e) => e.stopPropagation()}
+          <span
+            className="font-mono text-xs text-gray-500 hover:text-gray-300 transition-colors cursor-pointer"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.open(explorerAddress(child.childAddr), "_blank"); }}
           >
             {formatAddress(child.childAddr)}
-          </a>
+          </span>
         </div>
 
         {/* DAO */}
@@ -82,15 +79,12 @@ export function AgentCard({ child }: AgentCardProps) {
           <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
             DAO
           </p>
-          <a
-            href={explorerAddress(child.governance)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-mono text-xs text-blue-400 hover:text-blue-300 transition-colors"
-            onClick={(e) => e.stopPropagation()}
+          <span
+            className="font-mono text-xs text-blue-400 hover:text-blue-300 transition-colors cursor-pointer"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.open(explorerAddress(child.governance), "_blank"); }}
           >
             {formatAddress(child.governance)}
-          </a>
+          </span>
         </div>
 
         {/* Stats row */}

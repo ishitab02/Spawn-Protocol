@@ -28,10 +28,11 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
       <body
-        className="min-h-full flex"
-        style={{ backgroundColor: "#0a0a0f", color: "#f0f0f5" }}
+        className="min-h-full flex bg-[#0a0a0f] text-[#f0f0f5]"
+        suppressHydrationWarning
       >
         <Navbar />
         <main className="flex-1 ml-56 min-h-screen grid-bg">{children}</main>
