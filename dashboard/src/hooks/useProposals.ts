@@ -87,9 +87,10 @@ export function useProposals() {
                   }),
                 ]);
 
-                // Parse source DAO from description prefix like "[Arbitrum Core — Real Governance via Tally]"
+                // Parse source DAO from description — tag like "[Arbitrum Core — Real Governance via Tally]"
+                // can appear anywhere in the text
                 const desc = rawProposal.description || "";
-                const tallyMatch = desc.match(/^\[(.+?)\s*[—–-]\s*Real Governance via Tally\]/);
+                const tallyMatch = desc.match(/\[(.+?)\s*[—–-]\s*Real Governance via Tally\]/);
                 const sourceDaoName = tallyMatch ? tallyMatch[1] : null;
 
                 return {

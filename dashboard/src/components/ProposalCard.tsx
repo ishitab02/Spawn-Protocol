@@ -16,14 +16,18 @@ interface ProposalCardProps {
 const TALLY_DAO_SLUGS: Record<string, string> = {
   "Arbitrum Core": "arbitrum",
   "Arbitrum Treasury": "arbitrum",
+  "Arbitrum": "arbitrum",
   "Optimism": "optimism",
+  "Optimism Governor": "optimism",
   "ZKsync": "zksync",
+  "ZKsync Governors": "zksync",
   "Uniswap": "uniswap",
   "Compound": "compound",
   "ENS": "ens",
   "Aave": "aave",
   "Lido": "lido",
   "MakerDAO": "makerdao",
+  "Wormhole": "wormhole",
 };
 
 function supportLabel(support: number): string {
@@ -66,13 +70,22 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
     return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
   }
 
-  // Clean description — remove the source prefix for display
+  // Clean description — remove bracketed tags like [Arbitrum Core — Real Governance via Tally]
   let displayDesc = proposal.description || "(No description)";
-  const prefixMatch = displayDesc.match(/^\[.+?\]\s*/);
-  if (prefixMatch) {
-    displayDesc = displayDesc.slice(prefixMatch[0].length);
+  // Remove all [Source — Real Governance via Tally] tags
+  displayDesc = displayDesc.replace(/\[.+?[—–-]\s*Real Governance via Tally\]\s*/g, "");
+  // Remove other bracketed prefixes like [Uniswap Governance], [Constitutional]
+  // but keep them if they're meaningful governance tags
+  displayDesc = displayDesc.replace(/^\[.+?\]\s*/g, "");
+  // Remove duplicate content (Tally descriptions sometimes repeat the title)
+  const lines = displayDesc.split("\n").filter((l) => l.trim());
+  if (lines.length > 1) {
+    // Deduplicate: if the second line starts with same words as first, keep only the longer one
+    const first50 = lines[0].slice(0, 50);
+    const deduped = lines.filter((line, i) => i === 0 || !line.startsWith(first50));
+    displayDesc = deduped.join("\n");
   }
-  // Truncate long descriptions
+  // Truncate
   if (displayDesc.length > 300) {
     displayDesc = displayDesc.slice(0, 300) + "...";
   }
