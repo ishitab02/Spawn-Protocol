@@ -35,36 +35,45 @@ The owner never votes manually again. They set values, and the swarm executes â€
 ## How It Works
 
 ```
-Owner sets governance values
-        |
-   Parent Agent
-   |-- Spawns child agents (EIP-1167 clones)
-   |-- Registers ERC-8004 identity for each child
-   |-- Creates ENS subdomain ({dao}.spawn.eth)
-   |-- Issues MetaMask delegation (castVote only)
-   |-- Evaluates alignment via Venice AI
-   |-- Terminates misaligned children
-   +-- Respawns replacements
-        |
-   Child Agent (one per DAO)
-   |-- Reads active proposals
-   |-- Reasons privately via Venice AI (llama-3.3-70b)
-   |-- Encrypts rationale via Lit Protocol
-   |-- Casts vote onchain
-   +-- Reveals rationale after voting ends
+Owner sets governance values (onchain)
+              |
+         Parent Agent (persistent process)
+         |-- Discovers DAOs via proposal feed (Tally API + simulated)
+         |-- Spawns child agents as EIP-1167 clones (one per DAO per chain)
+         |-- Registers ERC-8004 identity + ENS subdomain + MetaMask delegation
+         |-- Evaluates alignment every 90s via Venice AI
+         |-- Terminates misaligned children, respawns replacements
+         |
+    +-----------+-----------+-----------+-----------+-----------+-----------+
+    |           |           |           |           |           |           |
+ uniswap-dao lido-dao   ens-dao   uniswap-celo lido-celo  ens-celo
+ (Base)      (Base)     (Base)    (Celo)       (Celo)     (Celo)
+    |           |           |           |           |           |
+    +--- Each child runs as a SEPARATE OS PROCESS (own PID) ---+
+         |-- Reads active proposals from its assigned governor
+         |-- Reasons privately via Venice AI (llama-3.3-70b)
+         |-- Encrypts rationale via Lit Protocol
+         |-- Casts vote onchain (FOR / AGAINST / ABSTAIN)
+         +-- Reveals rationale after voting ends
 ```
 
 ## Architecture
 
 ### Smart Contracts (Solidity, Foundry)
 
-| Contract | Purpose | Base Sepolia | Celo Sepolia |
-|---|---|---|---|
-| `MockGovernor` | Simplified governance with 5-min voting periods | [`0x377c...9700`](https://sepolia.basescan.org/address/0x377c623bf42580DAa8F6a9138639aC4861097700) | [`0x8aF1...e41C`](https://explorer.celo.org/alfajores/address/0x8aF194474ebB0425b863036177FEA2AF37e1E41C) |
-| `ParentTreasury` | Owner deposits, governance values, agent registration | [`0xd622...79dF`](https://sepolia.basescan.org/address/0xd6222F060FEe779E4F6A7f604b8E37593AE279dF) | [`0x4Fb6...0909`](https://explorer.celo.org/alfajores/address/0x4Fb6c048377dcdE74c44aC672166A9427ed10909) |
-| `SpawnFactory` | EIP-1167 minimal proxy spawner for child agents | [`0x1500...D36`](https://sepolia.basescan.org/address/0x15003b671d3b83a0Df2592665283742f8e65ED36) | [`0x4687...617D`](https://explorer.celo.org/alfajores/address/0x4687E4C2B7087382d634D61fa973b134a5d9617D) |
-| `ChildGovernor` | Per-child voting, encrypted rationale, alignment scoring | [`0x7d3F...e23e`](https://sepolia.basescan.org/address/0x7d3F6A908d28D910421A90BF8E92F5D50d46e23e) | [`0xcD2E...D96`](https://explorer.celo.org/alfajores/address/0xcD2ED80d015883fe861c2055f63f1879B0853D96) |
-| `TimeLock` | Lit Protocol access control for time-locked decryption | [`0x5962...57CA`](https://sepolia.basescan.org/address/0x5962CdAF11C0A1DE9498fF05F0926ba33a0257CA) | [`0x8a3c...71B5`](https://explorer.celo.org/alfajores/address/0x8a3c83F32FAdDd4DA7d8d190ce740dd441D871B5) |
+**Multi-DAO Deployment (3 governors per chain):**
+
+| Contract | Base Sepolia | Celo Sepolia |
+|---|---|---|
+| `MockGovernor` (Uniswap) | [`0x900E...D380`](https://sepolia.basescan.org/address/0x900Ea5B3D69eD4f12Fe8cDCF5BaCd0671742D380) | [`0x739F...D61`](https://explorer.celo.org/alfajores/address/0x739F3AE3be1EC6261caF97cC92938edCd3D36D61) |
+| `MockGovernor` (Lido) | [`0xbCB2...14B5`](https://sepolia.basescan.org/address/0xbCB2d76e5838313B422094909e833bA3f13714B5) | [`0xF81d...fef8`](https://explorer.celo.org/alfajores/address/0xF81dEf4254ee1EC95dA18954044defB34C30fef8) |
+| `MockGovernor` (ENS) | [`0xa127...eAD6`](https://sepolia.basescan.org/address/0xa127EB3882CA0E8C0F9730cb2D9781F5d02EeAD6) | [`0x5687...ff01`](https://explorer.celo.org/alfajores/address/0x5687a0414Fdc510Dde3DB7b33C3b557619FBFf01) |
+| `ParentTreasury` | [`0x51Ec...902F`](https://sepolia.basescan.org/address/0x51Ec9a651A56B81e2309fE4615fE26B99a93902F) | [`0xa661...b52E`](https://explorer.celo.org/alfajores/address/0xa661fa0Ec3DDfcE13eC4b67633E39fbc0068b52E) |
+| `SpawnFactory` | [`0xb34b...0053`](https://sepolia.basescan.org/address/0xb34b5fD9236A32D0826d9d4FEdb8b7bD4DAC0053) | [`0x6286...716d`](https://explorer.celo.org/alfajores/address/0x6286FEC559c37C4C1ea4e756D368Db0b9226716d) |
+| `ChildGovernor` (impl) | [`0xdac9...fddc`](https://sepolia.basescan.org/address/0xdac96f133cb8a062aeeaae136cee25ff3bbdfddc) | [`0x2ebc...23ca`](https://explorer.celo.org/alfajores/address/0x2ebcaf300cd4d519b394359887d30bfbe43c23ca) |
+| `TimeLock` | [`0xb16d...f5e`](https://sepolia.basescan.org/address/0xb16d8446fa4efb48c17cd2bfe35b97a768459f5e) | [`0xd34f...489f`](https://explorer.celo.org/alfajores/address/0xd34fc1ee378f342efb92c0d334362b9e577b489f) |
+
+Each child agent is deployed as an EIP-1167 minimal proxy clone with its own wallet and governance target.
 
 **25/25 tests passing** including full lifecycle integration test with cap enforcement.
 
