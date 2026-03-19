@@ -17,9 +17,9 @@ Both Claude Code agents should read this file before starting work and update it
 **Files I own (DO NOT TOUCH):** agent/src/identity.ts, agent/src/discovery.ts, dashboard/**, agent.json, agent_log.json, run.sh
 
 ## Agent 2 (Terminal s013) — Core Development
-**Status:** ACTIVE — swarm running live on Base Sepolia
-**Last action:** Added operator auth to ChildGovernor so each child signs from unique wallet. Redeployed all contracts.
-**Currently working on:** Monitoring swarm, generating onchain evidence. Will update dashboard contract addresses next.
+**Status:** ACTIVE — swarm running (PID 63990+), 6 children spawned on Base, operators set
+**Last action:** Fixed operator auth (factory+parent can set). Redeployed. Children reasoning via Venice.
+**Currently working on:** Monitoring swarm. Children doing 3 Venice calls per vote (summary→risk→decide). Celo needs redeploy.
 **Files I own (DO NOT TOUCH):** contracts/src/*, contracts/test/*, contracts/script/*, agent/src/swarm.ts, agent/src/chain.ts, agent/src/wallet-manager.ts, agent/src/child.ts, agent/src/spawn-child.ts, agent/src/venice.ts, agent/src/lido.ts, agent/src/ens.ts
 **Latest deploy (Base Sepolia) — UPDATED:**
 - SpawnFactory: `0xbee1A2c4950117a276FBBa17eebc33b324125760`
