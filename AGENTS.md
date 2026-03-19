@@ -11,10 +11,10 @@ Both Claude Code agents should read this file before starting work and update it
 ---
 
 ## Agent 1 (Terminal s014) — Infrastructure & Integration
-**Status:** IDLE
-**Last action:** Committed Venice maximization (6 AI calls per vote cycle), timeline events fix, run.sh script
-**Currently working on:** Nothing — waiting for coordination
-**Files recently modified:** agent/src/venice.ts, agent/src/child.ts, agent/src/swarm.ts, agent.json, dashboard/src/hooks/useTimeline.ts, dashboard/src/components/TimelineItem.tsx, run.sh
+**Status:** ACTIVE
+**Last action:** Fixed Tally duplicate proposals, timeline timestamps, proposal vote display, hydration errors, description cleaning
+**Currently working on:** ERC-8004 dynamic metadata updates via setAgentURI + dashboard improvements
+**Files I own (DO NOT TOUCH):** agent/src/identity.ts, agent/src/discovery.ts, dashboard/**, agent.json, agent_log.json, run.sh, AGENTS.md
 
 ## Agent 2 (Terminal s013) — Core Development
 **Status:** ACTIVE
