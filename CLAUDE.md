@@ -344,11 +344,11 @@ All team members must transfer ERC-8004 identity to a self-owned wallet:
   testing, indexing, frontend-ux, frontend-playbook, qa.
 
 ## Deployed Contracts (Base Sepolia, chain 84532)
-- **MockGovernor:** `0xabCBCa03e9E604Bb5182871aFc6EAeE8Da54Ef6b`
-- **ParentTreasury:** `0xf8C1B9f2093AbA98758Ab9fdDECA4a51679eA51F`
-- **ChildGovernor (impl):** `0xce1847216305F4e8029af2587b7EccbdfF6D2527`
-- **SpawnFactory:** `0x7890836c5C8F1E0fa73045791C42C746A3826163`
-- **TimeLock:** `0x05952Db4Eece0EE3498fbcf25E8e29133AcAdE09`
+- **MockGovernor:** `0x377c623bf42580DAa8F6a9138639aC4861097700`
+- **ParentTreasury:** `0xd6222F060FEe779E4F6A7f604b8E37593AE279dF`
+- **ChildGovernor (impl):** `0x7d3F6A908d28D910421A90BF8E92F5D50d46e23e`
+- **SpawnFactory:** `0x15003b671d3b83a0Df2592665283742f8e65ED36`
+- **TimeLock:** `0x5962CdAF11C0A1DE9498fF05F0926ba33a0257CA`
 - **Deployer:** `0x15896e731c51ecB7BdB1447600DF126ea1d6969A`
 
 ## Deployed Contracts (Celo Sepolia, chain 11142220)

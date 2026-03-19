@@ -52,11 +52,18 @@ Respond in JSON format:
     return { decision, reasoning: content };
   }
 
-  const parsed = JSON.parse(jsonMatch[0]);
-  return {
-    decision: (parsed.decision || "FOR").toUpperCase() as "FOR" | "AGAINST" | "ABSTAIN",
-    reasoning: (parsed.reasoning || content) as string,
-  };
+  try {
+    const parsed = JSON.parse(jsonMatch[0]);
+    return {
+      decision: (parsed.decision || "FOR").toUpperCase() as "FOR" | "AGAINST" | "ABSTAIN",
+      reasoning: (parsed.reasoning || content) as string,
+    };
+  } catch {
+    // JSON extraction failed, fallback to text parsing
+    const upper = content.toUpperCase();
+    const decision = upper.includes("AGAINST") ? "AGAINST" : upper.includes("ABSTAIN") ? "ABSTAIN" : "FOR";
+    return { decision, reasoning: content };
+  }
 }
 
 export async function evaluateAlignment(
@@ -100,8 +107,12 @@ Respond in JSON: {"score": <number>, "explanation": "<brief explanation>"}`,
     return 75;
   }
 
-  const parsed = JSON.parse(jsonMatch[0]);
-  return (parsed.score ?? 75) as number;
+  try {
+    const parsed = JSON.parse(jsonMatch[0]);
+    return (parsed.score ?? 75) as number;
+  } catch {
+    return 75;
+  }
 }
 
 export { venice };
