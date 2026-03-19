@@ -9,13 +9,16 @@
     "demo": "tsx src/demo.ts"
   },
   "dependencies": {
+    "@lit-protocol/constants": "^9.0.1",
+    "@lit-protocol/lit-node-client": "^7.4.0",
+    "@lit-protocol/types": "^8.0.4",
+    "dotenv": "^16.4.7",
     "openai": "^4.77.0",
-    "viem": "^2.23.0",
-    "dotenv": "^16.4.7"
+    "viem": "^2.23.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0",
-    "@types/node": "^22.0.0"
+    "typescript": "^5.7.0"
   }
 }
