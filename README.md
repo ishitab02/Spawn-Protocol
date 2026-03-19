@@ -76,7 +76,14 @@ Every action in Spawn Protocol is a real onchain transaction. Verified transacti
 - Child #1 alignment updated: [`0x1e55ea...`](https://sepolia.basescan.org/tx/0x1e55ea01be0c465d9dd3803ebec579842ec94997e3295388025213cf6942fb1e)
 - Child #2 alignment updated: [`0xa054fc...`](https://sepolia.basescan.org/tx/0xa054fce832393f6c0dea957c54f98bf2b058755fcbe4187c56a4e4a4d89c881c)
 
-View all SpawnFactory activity: [BaseScan](https://sepolia.basescan.org/address/0x7890836c5C8F1E0fa73045791C42C746A3826163)
+**ERC-8004 Agent Identity (official registry at `0x8004A818...`):**
+- Parent agent registered (ID #2220): [`0x464bac...`](https://sepolia.basescan.org/tx/0x464bacc3f2fb6608dd8d4810773537dec7db79997aae5b019ca208582d189e19) — `spawn://parent.spawn.eth`
+- Uniswap child registered (ID #2221): [`0xc3e31d...`](https://sepolia.basescan.org/tx/0xc3e31d218c24bdb0b2e2b279d710d3baba0359dc3a74c03d891927330d7b1d16) — `spawn://uniswap-gov.spawn.eth`
+- Lido child registered (ID #2222): [`0x16c4ea...`](https://sepolia.basescan.org/tx/0x16c4ea081fc241cf3fa84af547827e6cf9e899f5cd827a5bce04b20a3fe8200e) — `spawn://lido-gov.spawn.eth`
+- ENS child registered (ID #2223): [`0x2da98f...`](https://sepolia.basescan.org/tx/0x2da98f891805292fc0fb352859756aceadaac860f12af4aa489ed22359ae1249) — `spawn://ens-gov.spawn.eth`
+
+View all SpawnFactory activity: [BaseScan](https://sepolia.basescan.org/address/0x15003b671d3b83a0Df2592665283742f8e65ED36)
+View ERC-8004 registry: [BaseScan](https://sepolia.basescan.org/address/0x8004A818BFB912233c491871b3d84c89A494BD9e)
 
 ## Demo Flow
 
