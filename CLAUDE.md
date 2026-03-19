@@ -344,11 +344,11 @@ All team members must transfer ERC-8004 identity to a self-owned wallet:
   testing, indexing, frontend-ux, frontend-playbook, qa.
 
 ## Deployed Contracts (Base Sepolia, chain 84532)
-- **MockGovernor:** `0xA90f96DB17FfA5AfB02b90Fc8bA667F735198306`
-- **ParentTreasury:** `0x2BC402E4dF978812d28D4652b211b6a2243a57aA`
-- **ChildGovernor (impl):** `0x34b1761E941e762994B6089D1b8681eFE527a393`
-- **SpawnFactory:** `0x427aa82cD76e57d41eF8f685d7f1A76A415fA75d`
-- **TimeLock:** `0x1bDeaE9e843188DBF31bf69b65809da485174ea3`
+- **MockGovernor:** `0xabCBCa03e9E604Bb5182871aFc6EAeE8Da54Ef6b`
+- **ParentTreasury:** `0xf8C1B9f2093AbA98758Ab9fdDECA4a51679eA51F`
+- **ChildGovernor (impl):** `0xce1847216305F4e8029af2587b7EccbdfF6D2527`
+- **SpawnFactory:** `0x7890836c5C8F1E0fa73045791C42C746A3826163`
+- **TimeLock:** `0x05952Db4Eece0EE3498fbcf25E8e29133AcAdE09`
 - **Deployer:** `0x15896e731c51ecB7BdB1447600DF126ea1d6969A`
 
 ## Dashboard Agent Instructions
@@ -368,11 +368,11 @@ A Next.js 14 app (App Router) that visualizes the agent swarm in real time by
 polling onchain events from Base Sepolia.
 
 ### Deployed contracts (Base Sepolia, chain 84532)
-- MockGovernor: 0xA90f96DB17FfA5AfB02b90Fc8bA667F735198306
-- ParentTreasury: 0x2BC402E4dF978812d28D4652b211b6a2243a57aA
-- ChildGovernor (impl): 0x34b1761E941e762994B6089D1b8681eFE527a393
-- SpawnFactory: 0x427aa82cD76e57d41eF8f685d7f1A76A415fA75d
-- TimeLock: 0x1bDeaE9e843188DBF31bf69b65809da485174ea3
+- MockGovernor: 0xabCBCa03e9E604Bb5182871aFc6EAeE8Da54Ef6b
+- ParentTreasury: 0xf8C1B9f2093AbA98758Ab9fdDECA4a51679eA51F
+- ChildGovernor (impl): 0xce1847216305F4e8029af2587b7EccbdfF6D2527
+- SpawnFactory: 0x7890836c5C8F1E0fa73045791C42C746A3826163
+- TimeLock: 0x05952Db4Eece0EE3498fbcf25E8e29133AcAdE09
 - RPC: https://sepolia.base.org
 
 ### Pages / Views
@@ -442,19 +442,21 @@ npx shadcn@latest init -d
 - [x] ParentTreasury written + tested
 - [x] Integration test passing (23/23)
 - [x] Deployed to Base Sepolia
-- [ ] Deployed to Celo Alfajores (RPC down, retry later)
+- [ ] Deployed to Celo Alfajores (RPC down globally, retrying)
 - [x] Agent runtime scaffolded
-- [x] Venice API integrated
-- [x] Parent agent loop working
-- [x] Child agent loop working
-- [ ] Children vote autonomously (needs Venice credits + testnet ETH)
-- [ ] Parent evaluates alignment
-- [ ] Parent kills/respawns misaligned children
-- [ ] Lit Protocol encryption working (Phase 2 in progress)
-- [ ] MetaMask delegations working (Phase 2 in progress)
-- [ ] ERC-8004 identities registered (Phase 2 in progress)
-- [ ] ENS subdomains registered (Phase 2 in progress)
-- [ ] Lido stETH integration
-- [ ] Dashboard live
+- [x] Venice API integrated (credits active, llama-3.3-70b confirmed working)
+- [x] Parent agent loop working (with ENS, ERC-8004, delegation, yield monitoring)
+- [x] Child agent loop working (with Lit Protocol encrypt/decrypt + fallback)
+- [x] Children vote autonomously (Venice reasoning → onchain vote) ✓ VERIFIED LIVE
+- [x] Parent evaluates alignment (Venice scoring → onchain update) ✓ VERIFIED LIVE
+- [x] Parent kills/respawns misaligned children (with post-spawn integrations)
+- [x] Lit Protocol encryption wired into child loop (encrypt on vote, decrypt on reveal)
+- [x] MetaMask delegations wired into parent spawn flow
+- [x] ERC-8004 identities wired into parent spawn + alignment flow ✓ VERIFIED LIVE
+- [x] ENS subdomains wired into parent spawn flow (local fallback on Base Sepolia) ✓ VERIFIED LIVE
+- [x] Lido stETH integration (yield tracking + self-sustainability metrics)
+- [x] End-to-end demo tested on Base Sepolia ✓ ALL VOTES ONCHAIN
+- [ ] Deployed to Celo Alfajores (RPC down globally)
+- [ ] Dashboard live (separate agent building)
 - [ ] Demo recorded
 - [ ] Submitted

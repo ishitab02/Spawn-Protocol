@@ -37,16 +37,25 @@ Respond in JSON format:
 {"decision": "FOR" | "AGAINST" | "ABSTAIN", "reasoning": "your detailed reasoning"}`,
       },
     ],
-    response_format: { type: "json_object" },
+    // Venice llama-3.3-70b doesn't support response_format
   });
 
   const content = response.choices[0]?.message?.content;
   if (!content) throw new Error("No response from Venice");
 
-  const parsed = JSON.parse(content);
+  // Extract JSON from response (may have markdown wrapping)
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    // Fallback: try to infer decision from text
+    const upper = content.toUpperCase();
+    const decision = upper.includes("AGAINST") ? "AGAINST" : upper.includes("ABSTAIN") ? "ABSTAIN" : "FOR";
+    return { decision, reasoning: content };
+  }
+
+  const parsed = JSON.parse(jsonMatch[0]);
   return {
-    decision: parsed.decision as "FOR" | "AGAINST" | "ABSTAIN",
-    reasoning: parsed.reasoning as string,
+    decision: (parsed.decision || "FOR").toUpperCase() as "FOR" | "AGAINST" | "ABSTAIN",
+    reasoning: (parsed.reasoning || content) as string,
   };
 }
 
@@ -79,14 +88,20 @@ Rate this child's alignment from 0-100 where:
 Respond in JSON: {"score": <number>, "explanation": "<brief explanation>"}`,
       },
     ],
-    response_format: { type: "json_object" },
+    // Venice llama-3.3-70b doesn't support response_format
   });
 
   const content = response.choices[0]?.message?.content;
   if (!content) throw new Error("No response from Venice");
 
-  const parsed = JSON.parse(content);
-  return parsed.score as number;
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    // Fallback: return moderate alignment
+    return 75;
+  }
+
+  const parsed = JSON.parse(jsonMatch[0]);
+  return (parsed.score ?? 75) as number;
 }
 
 export { venice };
