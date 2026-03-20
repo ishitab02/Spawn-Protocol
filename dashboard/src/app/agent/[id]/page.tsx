@@ -102,12 +102,6 @@ export default function AgentDetailPage({ params }: PageProps) {
             </a>
           </div>
           <div>
-            <p className="text-xs text-gray-600 uppercase tracking-wider mb-1">Budget</p>
-            <p className="font-mono text-white">
-              {(Number(child.budget) / 1e18).toFixed(4)} ETH
-            </p>
-          </div>
-          <div>
             <p className="text-xs text-gray-600 uppercase tracking-wider mb-1">Votes Cast</p>
             <p className="font-mono text-white">{child.voteCount.toString()}</p>
           </div>
