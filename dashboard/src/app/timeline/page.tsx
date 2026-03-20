@@ -1,20 +1,45 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useTimeline } from "@/hooks/useTimeline";
 import { TimelineItem } from "@/components/TimelineItem";
 
+const PAGE_SIZE = 20;
+
 export default function TimelinePage() {
   const { events, loading, error } = useTimeline();
+  const [page, setPage] = useState(1);
+
+  const totalPages = Math.max(1, Math.ceil(events.length / PAGE_SIZE));
+
+  // Auto-advance to last page when new events push us over the limit
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [totalPages, page]);
+
+  const paginated = events.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className="p-8">
       <div className="mb-8">
-        <h1 className="text-2xl font-mono font-bold text-purple-400 tracking-tight">
-          Timeline
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Chronological feed of all onchain events
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-mono font-bold text-purple-400 tracking-tight">
+              Timeline
+            </h1>
+            <p className="text-sm text-gray-500 mt-1">
+              Chronological feed of all onchain events
+            </p>
+          </div>
+          {!loading && events.length > 0 && (
+            <div className="text-center">
+              <div className="text-3xl font-mono font-bold text-purple-400">
+                {events.length}
+              </div>
+              <div className="text-xs text-gray-500 uppercase tracking-wider">Events</div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Legend */}
@@ -80,11 +105,64 @@ export default function TimelinePage() {
       )}
 
       {!loading && events.length > 0 && (
-        <div className="space-y-3">
-          {events.map((event) => (
-            <TimelineItem key={event.id} event={event} />
-          ))}
-        </div>
+        <>
+          <div className="space-y-3">
+            {paginated.map((event) => (
+              <TimelineItem key={event.id} event={event} />
+            ))}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="mt-8 flex items-center justify-center gap-2 font-mono text-sm">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-3 py-1.5 rounded border border-gray-700 text-gray-400 hover:border-purple-500 hover:text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                ← Prev
+              </button>
+
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
+                const isNearCurrent = Math.abs(p - page) <= 2 || p === 1 || p === totalPages;
+                const showEllipsisBefore = p === page - 3 && p > 2;
+                const showEllipsisAfter = p === page + 3 && p < totalPages - 1;
+
+                if (showEllipsisBefore || showEllipsisAfter) {
+                  return (
+                    <span key={p} className="text-gray-600 px-1">…</span>
+                  );
+                }
+                if (!isNearCurrent) return null;
+
+                return (
+                  <button
+                    key={p}
+                    onClick={() => setPage(p)}
+                    className={`w-8 h-8 rounded border transition-colors ${
+                      p === page
+                        ? "border-purple-500 bg-purple-500/10 text-purple-400"
+                        : "border-gray-700 text-gray-500 hover:border-purple-500/50 hover:text-purple-400"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="px-3 py-1.5 rounded border border-gray-700 text-gray-400 hover:border-purple-500 hover:text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                Next →
+              </button>
+
+              <span className="ml-4 text-gray-600 text-xs">
+                {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, events.length)} of {events.length}
+              </span>
+            </div>
+          )}
+        </>
       )}
 
       <div className="fixed bottom-6 right-6 flex items-center gap-2 bg-[#0d0d14] border border-gray-800 rounded-full px-3 py-1.5">
