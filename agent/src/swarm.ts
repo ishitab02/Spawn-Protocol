@@ -424,8 +424,8 @@ async function evaluateChainChildren(config: ChainConfig) {
           await config.sendTx({
             address: config.factory,
             abi: SpawnFactoryABI,
-            functionName: "spawnChild",
-            args: [newLabel, child.governance, 0n, 200000n],
+            functionName: "spawnChildWithOperator",
+            args: [newLabel, child.governance, 0n, 200000n, newChildWallet.address],
           });
 
           // Register ENS for the respawned child
