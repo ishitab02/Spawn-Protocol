@@ -37,17 +37,23 @@ export function useSwarmData() {
         functionName: "childCount",
       });
 
-      const count = Math.min(Number(totalCount), 60); // cap at 60 to avoid RPC overload
-      const rawChildren = await Promise.all(
-        Array.from({ length: count }, (_, i) =>
-          client.readContract({
-            address: contracts.SpawnFactory.address,
-            abi: contracts.SpawnFactory.abi,
-            functionName: "getChild",
-            args: [BigInt(i + 1)],
-          })
-        )
-      );
+      const count = Math.min(Number(totalCount), 120); // cap to avoid RPC overload
+      // Batch in groups of 20 to avoid RPC rate limits
+      const rawChildren: any[] = [];
+      for (let start = 0; start < count; start += 20) {
+        const batchSize = Math.min(20, count - start);
+        const batch = await Promise.all(
+          Array.from({ length: batchSize }, (_, i) =>
+            client.readContract({
+              address: contracts.SpawnFactory.address,
+              abi: contracts.SpawnFactory.abi,
+              functionName: "getChild",
+              args: [BigInt(start + i + 1)],
+            })
+          )
+        );
+        rawChildren.push(...batch);
+      }
 
       const enriched: ChildInfo[] = await Promise.all(
         rawChildren.map(async (child) => {
