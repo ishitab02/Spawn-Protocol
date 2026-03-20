@@ -49,46 +49,53 @@ const childProcesses = new Map<string, ChildProcess>();
  * If funding fails (nonce collision, underpriced), waits and retries.
  * After funding, verifies the balance is non-zero.
  */
+// Serialize funding calls to prevent nonce collisions
+let fundingLock = Promise.resolve();
+
 async function fundChildWallet(
   targetAddr: string,
-  amount: string = "0.002",
+  amount: string = "0.003",
   chainName: string = "base-sepolia",
-  maxRetries: number = 3
+  maxRetries: number = 4
 ): Promise<boolean> {
-  const isBase = chainName === "base-sepolia";
-  const wc = isBase ? walletClient : celoWalletClient;
-  const pc = isBase ? publicClient : celoPublicClient;
+  // Queue behind any pending funding tx to avoid nonce races
+  const result = fundingLock.then(async () => {
+    const isBase = chainName === "base-sepolia";
+    const wc = isBase ? walletClient : celoWalletClient;
+    const pc = isBase ? publicClient : celoPublicClient;
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      // Check if already funded
-      const balance = await pc.getBalance({ address: targetAddr as `0x${string}` });
-      if (balance > 0n) {
-        console.log(`  [Fund] ${targetAddr.slice(0, 10)}... already has ${balance} wei`);
-        return true;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        // Check if already funded
+        const balance = await pc.getBalance({ address: targetAddr as `0x${string}` });
+        if (balance > 0n) {
+          console.log(`  [Fund] ${targetAddr.slice(0, 10)}... already has balance`);
+          return true;
+        }
+
+        const fundHash = await (wc as any).sendTransaction({
+          to: targetAddr as `0x${string}`,
+          value: parseEther(amount),
+        });
+        await pc.waitForTransactionReceipt({ hash: fundHash, timeout: 60_000 });
+
+        // Verify
+        const newBalance = await pc.getBalance({ address: targetAddr as `0x${string}` });
+        if (newBalance > 0n) {
+          console.log(`  [Fund] ${targetAddr.slice(0, 10)}... funded with ${amount} ETH`);
+          return true;
+        }
+      } catch (err: any) {
+        const msg = err?.message?.slice(0, 50) || "unknown error";
+        console.log(`  [Fund] Attempt ${attempt + 1}/${maxRetries} for ${targetAddr.slice(0, 10)}...: ${msg}`);
+        await new Promise(r => setTimeout(r, 4000 + attempt * 3000));
       }
-
-      const fundHash = await (wc as any).sendTransaction({
-        to: targetAddr as `0x${string}`,
-        value: parseEther(amount),
-      });
-      await pc.waitForTransactionReceipt({ hash: fundHash });
-
-      // Verify balance after funding
-      const newBalance = await pc.getBalance({ address: targetAddr as `0x${string}` });
-      if (newBalance > 0n) {
-        console.log(`  [Fund] ${targetAddr.slice(0, 10)}... funded with ${amount} ETH`);
-        return true;
-      }
-    } catch (err: any) {
-      const msg = err?.message?.slice(0, 50) || "unknown error";
-      console.log(`  [Fund] Attempt ${attempt + 1}/${maxRetries} failed for ${targetAddr.slice(0, 10)}...: ${msg}`);
-      // Wait with backoff before retry
-      await new Promise(r => setTimeout(r, 3000 + attempt * 2000));
     }
-  }
-  console.log(`  [Fund] FAILED to fund ${targetAddr.slice(0, 10)}... after ${maxRetries} attempts`);
-  return false;
+    console.log(`  [Fund] FAILED to fund ${targetAddr.slice(0, 10)}... after ${maxRetries} attempts`);
+    return false;
+  });
+  fundingLock = result.then(() => {}).catch(() => {}); // chain without propagating errors
+  return result;
 }
 const strikes = new Map<string, number>();
 const childWalletKeys = new Map<string, `0x${string}`>(); // label => child private key
@@ -406,6 +413,22 @@ async function evaluateChainChildren(config: ChainConfig) {
     functionName: "getActiveChildren",
   })) as any[];
 
+  // Health check: auto-fund any child with empty wallet
+  for (const child of children) {
+    try {
+      const operator = await config.readClient.readContract({
+        address: child.childAddr, abi: ChildGovernorABI, functionName: "operator",
+      }) as `0x${string}`;
+      if (operator && operator !== "0x0000000000000000000000000000000000000000") {
+        const balance = await config.readClient.getBalance({ address: operator });
+        if (balance === 0n) {
+          console.log(`  [Health] ${child.ensLabel} wallet empty — auto-funding`);
+          await fundChildWallet(operator, "0.003", config.name);
+        }
+      }
+    } catch {}
+  }
+
   for (const child of children) {
     try {
       const history = (await config.readClient.readContract({
@@ -590,13 +613,13 @@ const IDLE_CYCLES_TO_RECALL = 5; // recall child if no votes for 5 cycles
 const idleCycleCount = new Map<string, number>(); // track idle cycles per child
 
 async function dynamicScaling(config: ChainConfig) {
-  console.log(`\n[Scaling] Checking swarm health on ${config.name}...`);
-
   const children = (await config.readClient.readContract({
     address: config.factory, abi: SpawnFactoryABI, functionName: "getActiveChildren",
   })) as any[];
 
   const parentBalance = await (config.readClient as any).getBalance({ address: account.address });
+  const targetTotal = config.governors.length * 3; // 3 perspectives per governor
+  console.log(`\n[Scaling] ${config.name}: ${children.length}/${targetTotal} agents | Budget: ${(Number(parentBalance) / 1e18).toFixed(4)} ETH`);
 
   // Check which governors have children assigned
   const coveredGovernors = new Set<string>();
