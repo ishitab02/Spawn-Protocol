@@ -1,20 +1,23 @@
 /**
  * DAO Discovery & Proposal Feed
  *
- * Fetches real governance proposals from Tally API and mirrors them
- * onto our MockGovernor so the swarm votes on real governance topics.
- * Falls back to a simulated feed with realistic proposals if Tally
- * is unreachable or requires auth.
+ * Fetches real governance proposals from multiple sources:
+ * 1. Tally API — onchain governance (Uniswap, Arbitrum, Optimism, Compound, etc.)
+ * 2. Snapshot GraphQL — offchain signaling (30K+ DAOs)
+ * 3. Simulated feed — realistic proposals as fallback
+ *
+ * Deduplication ensures the same proposal is never mirrored twice.
+ * Proposals are mirrored onto our MockGovernor contracts so the swarm
+ * can vote on real governance topics via Venice AI reasoning.
  */
 
 import { type Address } from "viem";
 import { MockGovernorABI } from "./abis.js";
-import { logParentAction } from "./logger.js";
 
 // ── Types ──
 
 export interface DiscoveredProposal {
-  /** Unique ID from source (Tally ID or simulated) */
+  /** Unique ID from source (prevents duplicates) */
   externalId: string;
   /** Human-readable title */
   title: string;
@@ -22,16 +25,10 @@ export interface DiscoveredProposal {
   description: string;
   /** DAO name (e.g. "Uniswap", "Compound") */
   daoName: string;
-  /** DAO slug on Tally */
+  /** DAO slug */
   daoSlug: string;
-  /** Voting start (unix seconds) */
-  startTimestamp: number;
-  /** Voting end (unix seconds) */
-  endTimestamp: number;
-  /** Whether this was sourced from Tally or simulated */
-  source: "tally" | "simulated";
-  /** Onchain proposal ID on our MockGovernor (set after mirroring) */
-  mirroredProposalId?: bigint;
+  /** Source platform */
+  source: "tally" | "snapshot" | "simulated";
   /** Timestamp when we discovered it */
   discoveredAt: number;
 }
@@ -40,34 +37,39 @@ export interface DiscoveredDAO {
   name: string;
   slug: string;
   proposalCount: number;
+  source: "tally" | "snapshot" | "simulated";
 }
 
-// ── State ──
+// ── State (deduplication) ──
 
-const seenProposals = new Map<string, DiscoveredProposal>();
+const seenProposals = new Set<string>(); // externalId set for O(1) dedup
+const allProposals: DiscoveredProposal[] = []; // ordered list
 const discoveredDAOs = new Map<string, DiscoveredDAO>();
 let feedInterval: ReturnType<typeof setInterval> | null = null;
-let tallyAvailable: boolean | null = null; // null = not checked yet
 let simulatedIndex = 0;
-let tallyLastFetched = 0; // timestamp of last Tally fetch (global cooldown)
 
 // ── Tally API ──
 
 const TALLY_ENDPOINT = "https://api.tally.xyz/query";
-const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
-// Top DAO organization IDs on Tally
-const TALLY_ORG_IDS = [
-  "2206072050315953936", // Arbitrum
-  "2206072049871356990", // Optimism
-  "2297436623035434412", // ZKsync
+// Major DAOs on Tally — organization IDs
+const TALLY_ORGS: Array<{ id: string; name: string }> = [
+  { id: "2206072050315953936", name: "Arbitrum" },
+  { id: "2206072049871356990", name: "Optimism" },
+  { id: "2297436623035434412", name: "ZKsync" },
+  { id: "2206072050315953922", name: "Uniswap" },
+  { id: "2206072050315953934", name: "Compound" },
+  { id: "2206072050315953921", name: "ENS" },
+  { id: "2206072050315953935", name: "Aave" },
+  { id: "2206072050315953933", name: "Gitcoin" },
+  { id: "2228718511899828760", name: "Nouns" },
 ];
 
 function buildTallyQuery(orgId: string): string {
   return `{
     proposals(input: {
       filters: { organizationId: "${orgId}" }
-      page: { limit: 3 }
+      page: { limit: 5 }
       sort: { isDescending: true, sortBy: id }
     }) {
       nodes {
@@ -75,8 +77,6 @@ function buildTallyQuery(orgId: string): string {
           id
           metadata { title description }
           status
-          start { ... on Block { timestamp } ... on BlocklessTimestamp { timestamp } }
-          end { ... on Block { timestamp } ... on BlocklessTimestamp { timestamp } }
           governor { name slug }
         }
       }
@@ -84,244 +84,198 @@ function buildTallyQuery(orgId: string): string {
   }`;
 }
 
-interface TallyProposal {
-  id: string;
-  metadata: { title: string; description: string };
-  status: string;
-  start: { timestamp: string };
-  end: { timestamp: string };
-  governor: { name: string; slug: string };
+async function fetchFromTally(): Promise<DiscoveredProposal[]> {
+  const apiKey = process.env.TALLY_API_KEY;
+  if (!apiKey) {
+    console.log("[Discovery] No TALLY_API_KEY set — skipping Tally");
+    return [];
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Api-Key": apiKey,
+  };
+
+  const results: DiscoveredProposal[] = [];
+  const now = Math.floor(Date.now() / 1000);
+
+  for (const org of TALLY_ORGS) {
+    try {
+      const response = await fetch(TALLY_ENDPOINT, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ query: buildTallyQuery(org.id) }),
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!response.ok) continue;
+
+      const json = (await response.json()) as {
+        data?: { proposals: { nodes: any[] } };
+        errors?: Array<{ message: string }>;
+      };
+
+      if (json.errors?.length) continue;
+
+      const nodes = json.data?.proposals?.nodes || [];
+      for (const p of nodes) {
+        const externalId = `tally-${p.id}`;
+        if (seenProposals.has(externalId)) continue; // dedup
+
+        const title = p.metadata?.title || "Untitled";
+        const description = p.metadata?.description || title;
+        const daoName = p.governor?.name || org.name;
+        const daoSlug = p.governor?.slug || org.name.toLowerCase();
+
+        trackDAO(daoName, daoSlug, "tally");
+
+        results.push({
+          externalId,
+          title,
+          description: `[${daoName} — Real Governance via Tally] ${title}\n\n${truncate(description)}`,
+          daoName,
+          daoSlug,
+          source: "tally",
+          discoveredAt: now,
+        });
+      }
+
+      // Rate limit: 1 req/sec between orgs
+      await sleep(1100);
+    } catch {}
+  }
+
+  if (results.length > 0) {
+    console.log(`[Discovery] Tally: ${results.length} new proposals from ${TALLY_ORGS.length} DAOs`);
+  }
+  return results;
 }
 
-async function fetchFromTally(): Promise<DiscoveredProposal[]> {
+// ── Snapshot GraphQL ──
+
+const SNAPSHOT_ENDPOINT = "https://hub.snapshot.org/graphql";
+
+// Major Snapshot spaces
+const SNAPSHOT_SPACES = [
+  "uniswapgovernance.eth",
+  "ens.eth",
+  "lido-snapshot.eth",
+  "aave.eth",
+  "gitcoindao.eth",
+  "opcollective.eth",
+  "arbitrumfoundation.eth",
+  "safe.eth",
+  "balancer.eth",
+  "cow.eth",
+  "starknet.eth",
+  "apecoin.eth",
+];
+
+function buildSnapshotQuery(): string {
+  const spacesStr = SNAPSHOT_SPACES.map(s => `"${s}"`).join(", ");
+  return `{
+    proposals(
+      first: 20,
+      skip: 0,
+      where: { space_in: [${spacesStr}] },
+      orderBy: "created",
+      orderDirection: desc
+    ) {
+      id
+      title
+      body
+      choices
+      state
+      space { id name }
+      created
+      end
+    }
+  }`;
+}
+
+async function fetchFromSnapshot(): Promise<DiscoveredProposal[]> {
+  const results: DiscoveredProposal[] = [];
+  const now = Math.floor(Date.now() / 1000);
+
   try {
-    const apiKey = process.env.TALLY_API_KEY;
-    if (!apiKey) {
-      console.log("[Discovery] No TALLY_API_KEY — using simulated feed");
-      tallyAvailable = false;
+    const response = await fetch(SNAPSHOT_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: buildSnapshotQuery() }),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!response.ok) {
+      console.log(`[Discovery] Snapshot returned ${response.status}`);
       return [];
     }
 
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "Api-Key": apiKey,
+    const json = (await response.json()) as {
+      data?: { proposals: any[] };
     };
 
-    const allProposals: DiscoveredProposal[] = [];
-    const now = Math.floor(Date.now() / 1000);
+    const proposals = json.data?.proposals || [];
+    for (const p of proposals) {
+      const externalId = `snapshot-${p.id}`;
+      if (seenProposals.has(externalId)) continue; // dedup
 
-    // Fetch from multiple DAOs
-    for (const orgId of TALLY_ORG_IDS) {
-      try {
-        const response = await fetch(TALLY_ENDPOINT, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ query: buildTallyQuery(orgId) }),
-          signal: AbortSignal.timeout(15_000),
-        });
+      const daoName = p.space?.name || "Unknown";
+      const daoSlug = p.space?.id || "unknown";
 
-        if (!response.ok) {
-          console.log(`[Discovery] Tally returned ${response.status} for org ${orgId}`);
-          continue;
-        }
+      trackDAO(daoName, daoSlug, "snapshot");
 
-        const json = (await response.json()) as {
-          data?: { proposals: { nodes: TallyProposal[] } };
-          errors?: Array<{ message: string }>;
-        };
-
-        if (json.errors?.length) {
-          console.log(`[Discovery] Tally error: ${json.errors[0].message}`);
-          continue;
-        }
-
-        const nodes = json.data?.proposals?.nodes || [];
-        for (const p of nodes) {
-          const daoName = p.governor?.name || "Unknown DAO";
-          const daoSlug = p.governor?.slug || "unknown";
-          const title = p.metadata?.title || "Untitled";
-          const description = p.metadata?.description || title;
-
-          // Track discovered DAOs
-          const existing = discoveredDAOs.get(daoSlug);
-          if (existing) {
-            existing.proposalCount++;
-          } else {
-            discoveredDAOs.set(daoSlug, { name: daoName, slug: daoSlug, proposalCount: 1 });
-          }
-
-          // Parse timestamps (could be ISO string or unix)
-          let startTs = now;
-          let endTs = now + 300;
-          try {
-            const startRaw = p.start?.timestamp;
-            const endRaw = p.end?.timestamp;
-            startTs = startRaw?.includes?.("T") ? Math.floor(new Date(startRaw).getTime() / 1000) : parseInt(startRaw, 10);
-            endTs = endRaw?.includes?.("T") ? Math.floor(new Date(endRaw).getTime() / 1000) : parseInt(endRaw, 10);
-          } catch {}
-
-          allProposals.push({
-            externalId: `tally-${p.id}`,
-            title,
-            description: `[${daoName} — Real Governance via Tally] ${title}\n\n${truncateDescription(description)}`,
-            daoName,
-            daoSlug,
-            startTimestamp: startTs,
-            endTimestamp: endTs,
-            source: "tally",
-            discoveredAt: now,
-          });
-        }
-
-        // Rate limit: 1 req/sec
-        await new Promise((r) => setTimeout(r, 1100));
-      } catch (err: any) {
-        console.log(`[Discovery] Tally fetch error for org ${orgId}: ${err?.message?.slice(0, 60)}`);
-      }
+      results.push({
+        externalId,
+        title: p.title || "Untitled",
+        description: `[${daoName} — Snapshot Governance] ${p.title}\n\n${truncate(p.body || p.title)}`,
+        daoName,
+        daoSlug,
+        source: "snapshot",
+        discoveredAt: now,
+      });
     }
 
-    if (allProposals.length > 0) {
-      tallyAvailable = true;
-      console.log(`[Discovery] Fetched ${allProposals.length} real proposals from Tally (${TALLY_ORG_IDS.length} DAOs)`);
-    } else {
-      tallyAvailable = false;
+    if (results.length > 0) {
+      console.log(`[Discovery] Snapshot: ${results.length} new active proposals`);
     }
-
-    return allProposals;
   } catch (err: any) {
-    const msg = err?.message || String(err);
-    console.log(`[Discovery] Tally fetch failed: ${msg.slice(0, 80)} — falling back to simulated feed`);
-    tallyAvailable = false;
-    return [];
+    console.log(`[Discovery] Snapshot fetch failed: ${err?.message?.slice(0, 60)}`);
   }
+
+  return results;
 }
 
-// ── Simulated Feed ──
+// ── Simulated Feed (fallback) ──
 
-/**
- * Realistic governance proposals based on actual DAO governance patterns.
- * These rotate through real governance topics so Venice reasoning is meaningful.
- */
-const SIMULATED_PROPOSALS: Array<{
-  daoName: string;
-  daoSlug: string;
-  title: string;
-  description: string;
-}> = [
-  {
-    daoName: "Uniswap",
-    daoSlug: "uniswap",
-    title: "Deploy Uniswap v3 on ZKsync Era",
-    description:
-      "This proposal seeks to deploy Uniswap v3 contracts on ZKsync Era mainnet. ZKsync Era has reached $500M TVL and deployment would expand Uniswap's reach to a major L2. The deployment would use the canonical bridge and include all standard fee tiers. Oku would serve as the default frontend integration. GFX Labs has volunteered to manage the deployment process.",
-  },
-  {
-    daoName: "Compound",
-    daoSlug: "compound",
-    title: "Adjust WETH Collateral Factor to 82%",
-    description:
-      "Gauntlet recommends increasing the WETH collateral factor from 80% to 82% on Compound v3 (Ethereum mainnet). Analysis of historical volatility, liquidation simulations, and current utilization rates supports this change. The adjustment would unlock approximately $45M in additional borrowing capacity while maintaining protocol safety margins above target thresholds.",
-  },
-  {
-    daoName: "ENS",
-    daoSlug: "ens",
-    title: "Fund ENS Public Goods Working Group — Q2 2026",
-    description:
-      "Request 250,000 USDC and 50 ETH for the ENS Public Goods Working Group for Q2 2026. Funds will support ENS integration grants, developer documentation, ecosystem tooling, and community education initiatives. The working group delivered 12 grants in Q1 including ENS-for-L2s resolver improvements and ENSjs v4 development.",
-  },
-  {
-    daoName: "Aave",
-    daoSlug: "aave",
-    title: "Add weETH as Collateral on Aave v3 Base",
-    description:
-      "This AIP proposes adding Ether.fi's wrapped eETH (weETH) as a collateral asset on Aave v3 Base deployment. weETH has demonstrated consistent liquidity with $2.1B in TVL across chains. Risk parameters: LTV 72.5%, Liquidation Threshold 75%, Liquidation Bonus 7.5%. Chainlink oracle feed is available and audited. This listing would enable leveraged restaking strategies on Base.",
-  },
-  {
-    daoName: "Arbitrum",
-    daoSlug: "arbitrum",
-    title: "Activate ARB Staking with 1.5% Emission Rate",
-    description:
-      "Proposal to activate the ARB staking module with a 1.5% annual emission rate. Stakers would lock ARB for a minimum of 3 months and receive stARB in return. The emission rate is funded from the DAO treasury's ARB allocation. The staking contract has been audited by OpenZeppelin and Trail of Bits. This mechanism aims to reduce circulating supply and align long-term governance participation.",
-  },
-  {
-    daoName: "Lido",
-    daoSlug: "lido",
-    title: "Upgrade Oracle Reporting with Distributed Validator Technology",
-    description:
-      "Proposal to integrate Distributed Validator Technology (DVT) into Lido's oracle reporting infrastructure. Currently oracle reports rely on 5-of-9 consensus. This upgrade would split each oracle key across 4 operators using SSV Network, requiring 3-of-4 threshold signatures per oracle. This reduces single-point-of-failure risk and improves liveness guarantees. Implementation timeline: 8 weeks.",
-  },
-  {
-    daoName: "MakerDAO",
-    daoSlug: "makerdao",
-    title: "Increase USDS Savings Rate to 8.5%",
-    description:
-      "This executive proposal adjusts the USDS Savings Rate (USR) from 6.5% to 8.5%. The increase is supported by current protocol revenue of $180M annualized, primarily from RWA vaults and ETH-backed lending. The Stability Advisory Council recommends this adjustment to maintain competitive positioning against T-bill yields and attract additional USDS deposits into the savings module.",
-  },
-  {
-    daoName: "Optimism",
-    daoSlug: "optimism",
-    title: "Season 6 Grants Council Budget — 3M OP",
-    description:
-      "Budget request for the Season 6 Grants Council: 3,000,000 OP tokens. Allocation breakdown: Builder Grants (1.5M OP), Growth Experiments (800K OP), Developer Tooling (400K OP), Council Operations (300K OP). Season 5 metrics: 47 grants distributed, 23 projects reached mainnet deployment, $12M TVL attributed to grant recipients. The council will continue using milestone-based disbursement.",
-  },
-  {
-    daoName: "Uniswap",
-    daoSlug: "uniswap",
-    title: "Activate Uniswap v3 1bp Fee Tier on Ethereum",
-    description:
-      "Proposal to activate a 0.01% (1 basis point) fee tier for Uniswap v3 on Ethereum mainnet with a tick spacing of 1. This fee tier is designed for stable-stable pairs (USDC/USDT, DAI/USDC) where the current 0.05% tier results in significant volume loss to competitors. Analysis shows approximately $2B weekly stablecoin volume migrating to lower-fee venues. The 1bp tier has been successfully deployed on Polygon and Arbitrum.",
-  },
-  {
-    daoName: "Compound",
-    daoSlug: "compound",
-    title: "Launch Compound Treasury v2 with Institutional On-Ramp",
-    description:
-      "Proposal to launch Compound Treasury v2, a permissioned lending product for institutional participants. Key features: KYC/AML compliance via Securitize integration, fixed-rate USDC lending at T-bill + 150bp, segregated risk pools, and quarterly redemption windows. Legal structure reviewed by Latham & Watkins. Initial capacity: $500M. Revenue share: 15% of management fees to COMP governance.",
-  },
-  {
-    daoName: "ENS",
-    daoSlug: "ens",
-    title: "Migrate ENS Registry to CCIP-Read for L2 Resolution",
-    description:
-      "Proposal to upgrade the ENS registry to support CCIP-Read (EIP-3668) for cross-chain name resolution. This enables ENS names to resolve data stored on any L2 without bridging. Users could store records on Base, Arbitrum, or Optimism and have them resolved seamlessly by L1 clients. The upgrade is backwards-compatible — existing L1 records continue working. Implementation by ENS Labs, audited by ChainSecurity.",
-  },
-  {
-    daoName: "Aave",
-    daoSlug: "aave",
-    title: "Deploy Aave v3.1 with Liquid E-Mode",
-    description:
-      "This proposal initiates deployment of Aave v3.1, featuring Liquid E-Mode — a new efficiency mode allowing users to borrow against correlated assets at higher LTVs without being restricted to single-category collateral. Additional v3.1 features: dynamic interest rate curves, improved liquidation mechanics, and gas-optimized position management. Audit by Certora (formal verification) and Sigma Prime completed.",
-  },
+const SIMULATED_PROPOSALS = [
+  { daoName: "Uniswap", daoSlug: "uniswap", title: "Deploy Uniswap v3 on ZKsync Era", description: "This proposal seeks to deploy Uniswap v3 contracts on ZKsync Era mainnet. ZKsync Era has reached $500M TVL and deployment would expand Uniswap's reach to a major L2. The deployment would use the canonical bridge and include all standard fee tiers." },
+  { daoName: "Compound", daoSlug: "compound", title: "Adjust WETH Collateral Factor to 82%", description: "Gauntlet recommends increasing the WETH collateral factor from 80% to 82% on Compound v3. Analysis of historical volatility, liquidation simulations, and current utilization rates supports this change." },
+  { daoName: "ENS", daoSlug: "ens", title: "Fund ENS Public Goods Working Group — Q2 2026", description: "Request 250,000 USDC and 50 ETH for the ENS Public Goods Working Group for Q2 2026. Funds will support ENS integration grants, developer documentation, ecosystem tooling." },
+  { daoName: "Aave", daoSlug: "aave", title: "Add weETH as Collateral on Aave v3 Base", description: "This AIP proposes adding Ether.fi's wrapped eETH (weETH) as a collateral asset on Aave v3 Base deployment. Risk parameters: LTV 72.5%, Liquidation Threshold 75%, Liquidation Bonus 7.5%." },
+  { daoName: "Arbitrum", daoSlug: "arbitrum", title: "Activate ARB Staking with 1.5% Emission Rate", description: "Proposal to activate the ARB staking module with a 1.5% annual emission rate. Stakers lock ARB for minimum 3 months. Audited by OpenZeppelin and Trail of Bits." },
+  { daoName: "Lido", daoSlug: "lido", title: "Upgrade Oracle Reporting with DVT", description: "Proposal to integrate Distributed Validator Technology (DVT) into Lido's oracle reporting. Split each oracle key across 4 operators using SSV Network, requiring 3-of-4 threshold signatures." },
+  { daoName: "MakerDAO", daoSlug: "makerdao", title: "Increase USDS Savings Rate to 8.5%", description: "Adjusts the USDS Savings Rate from 6.5% to 8.5%. Supported by current protocol revenue of $180M annualized from RWA vaults and ETH-backed lending." },
+  { daoName: "Optimism", daoSlug: "optimism", title: "Season 6 Grants Council Budget — 3M OP", description: "Budget request for Season 6: 3,000,000 OP tokens. Season 5 delivered 47 grants, 23 projects reached mainnet, $12M TVL attributed to grant recipients." },
+  { daoName: "Safe", daoSlug: "safe", title: "Deploy Safe Modules Registry on Base", description: "Proposal to deploy the Safe Modules Registry on Base L2 to enable permissionless module discovery and verification for Smart Account users." },
+  { daoName: "Balancer", daoSlug: "balancer", title: "Activate veBAL Boost for LRT Pools", description: "Proposal to allocate veBAL boost incentives to Liquid Restaking Token pools on Balancer v3. Targets weETH/WETH, ezETH/WETH, and rswETH/WETH pools." },
+  { daoName: "Nouns", daoSlug: "nouns", title: "Fund Nouns Builder Public Infrastructure", description: "Request 150 ETH to fund Nouns Builder v2 infrastructure: improved DAO deployment UX, cross-chain auction support, and sub-DAO treasury management." },
+  { daoName: "Gitcoin", daoSlug: "gitcoin", title: "GTC Staking for Passport Score Boost", description: "Proposal to allow GTC staking to boost Gitcoin Passport scores. Stakers get enhanced sybil-resistance scoring, creating utility for GTC beyond governance." },
 ];
 
 function generateSimulatedProposal(): DiscoveredProposal {
-  const template =
-    SIMULATED_PROPOSALS[simulatedIndex % SIMULATED_PROPOSALS.length];
+  const template = SIMULATED_PROPOSALS[simulatedIndex % SIMULATED_PROPOSALS.length];
   simulatedIndex++;
-
   const now = Math.floor(Date.now() / 1000);
-  const votingDuration = 300; // 5 minutes for demo
+  const externalId = `sim-${template.daoSlug}-${simulatedIndex}`;
 
-  // Track the DAO
-  const existing = discoveredDAOs.get(template.daoSlug);
-  if (existing) {
-    existing.proposalCount++;
-  } else {
-    discoveredDAOs.set(template.daoSlug, {
-      name: template.daoName,
-      slug: template.daoSlug,
-      proposalCount: 1,
-    });
-  }
+  trackDAO(template.daoName, template.daoSlug, "simulated");
 
   return {
-    externalId: `sim-${now}-${simulatedIndex}`,
+    externalId,
     title: template.title,
     description: `[${template.daoName} Governance] ${template.title}\n\n${template.description}`,
     daoName: template.daoName,
     daoSlug: template.daoSlug,
-    startTimestamp: now,
-    endTimestamp: now + votingDuration,
     source: "simulated",
     discoveredAt: now,
   };
@@ -329,9 +283,22 @@ function generateSimulatedProposal(): DiscoveredProposal {
 
 // ── Helpers ──
 
-function truncateDescription(desc: string, maxLen = 1000): string {
-  if (desc.length <= maxLen) return desc;
-  return desc.slice(0, maxLen) + "...";
+function truncate(text: string, maxLen = 1500): string {
+  if (text.length <= maxLen) return text;
+  return text.slice(0, maxLen) + "...";
+}
+
+function trackDAO(name: string, slug: string, source: "tally" | "snapshot" | "simulated") {
+  const existing = discoveredDAOs.get(slug);
+  if (existing) {
+    existing.proposalCount++;
+  } else {
+    discoveredDAOs.set(slug, { name, slug, proposalCount: 1, source });
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 // ── Send TX function type ──
@@ -345,112 +312,124 @@ type SendTxFn = (params: {
 
 // ── Core Feed Logic ──
 
+/**
+ * Mirror a discovered proposal onto our MockGovernor contract.
+ * Maps the real-world proposal to a DAO-specific governor based on topic.
+ */
 async function mirrorToMockGovernor(
   proposal: DiscoveredProposal,
-  mockGovernorAddr: Address,
+  governors: Array<{ addr: Address; name: string }>,
   sendTxFn: SendTxFn
-): Promise<bigint | null> {
-  try {
-    // Create proposal on our MockGovernor with the real/simulated description
-    const fullDesc = `[${proposal.daoName}] ${proposal.title}\n\n${proposal.description}`;
+): Promise<void> {
+  // Map proposal to a governor based on DAO name similarity
+  const gov = pickGovernor(proposal, governors);
 
+  try {
     const receipt = await sendTxFn({
-      address: mockGovernorAddr,
+      address: gov.addr,
       abi: MockGovernorABI,
       functionName: "createProposal",
-      args: [fullDesc],
+      args: [proposal.description],
     });
 
-    logParentAction(
-      "mirror_proposal",
-      {
-        externalId: proposal.externalId,
-        daoName: proposal.daoName,
-        title: proposal.title,
-        source: proposal.source,
-      },
-      {
-        txHash: receipt.transactionHash,
-        mirrored: true,
-      },
-      receipt.transactionHash
-    );
-
-    console.log(
-      `[Discovery] Mirrored "${proposal.title}" from ${proposal.daoName} (${proposal.source}) — tx: ${receipt.transactionHash}`
-    );
-
-    // We don't know the exact proposal ID without parsing logs, but the parent
-    // agent can read proposalCount to determine it
-    return null;
+    console.log(`[Discovery] Mirrored "${proposal.title.slice(0, 50)}" → ${gov.name} (${proposal.source}) tx: ${receipt.transactionHash?.slice(0, 18)}...`);
   } catch (err: any) {
-    const msg = err?.message || String(err);
-    console.error(
-      `[Discovery] Failed to mirror proposal "${proposal.title}": ${msg.slice(0, 100)}`
-    );
-    logParentAction(
-      "mirror_proposal",
-      {
-        externalId: proposal.externalId,
-        daoName: proposal.daoName,
-        title: proposal.title,
-      },
-      {},
-      undefined,
-      false,
-      msg.slice(0, 200)
-    );
-    return null;
+    console.log(`[Discovery] Mirror failed "${proposal.title.slice(0, 40)}": ${err?.message?.slice(0, 40)}`);
   }
 }
 
+/**
+ * Pick the most appropriate MockGovernor for a given proposal.
+ * Maps real DAOs to our 3 governors (Uniswap, Lido, ENS).
+ */
+function pickGovernor(
+  proposal: DiscoveredProposal,
+  governors: Array<{ addr: Address; name: string }>
+): { addr: Address; name: string } {
+  const slug = proposal.daoSlug.toLowerCase();
+  const name = proposal.daoName.toLowerCase();
+
+  // DeFi protocols → Uniswap governor
+  if (slug.includes("uniswap") || slug.includes("compound") || slug.includes("aave") ||
+      slug.includes("balancer") || slug.includes("maker") || slug.includes("cow") ||
+      name.includes("defi") || name.includes("swap")) {
+    return governors.find(g => g.name.toLowerCase().includes("uniswap")) || governors[0];
+  }
+
+  // Staking/infrastructure → Lido governor
+  if (slug.includes("lido") || slug.includes("safe") || slug.includes("starknet") ||
+      slug.includes("arbitrum") || slug.includes("optimism") || slug.includes("zksync") ||
+      slug.includes("op") || name.includes("staking") || name.includes("infra")) {
+    return governors.find(g => g.name.toLowerCase().includes("lido")) || governors[1 % governors.length];
+  }
+
+  // Identity/public goods → ENS governor
+  if (slug.includes("ens") || slug.includes("gitcoin") || slug.includes("nouns") ||
+      slug.includes("apecoin") || name.includes("public") || name.includes("identity")) {
+    return governors.find(g => g.name.toLowerCase().includes("ens")) || governors[2 % governors.length];
+  }
+
+  // Default: round-robin
+  return governors[Math.floor(Math.random() * governors.length)];
+}
+
+/**
+ * Poll all sources for new proposals, deduplicate, and mirror to chain.
+ */
 async function pollOnce(
-  mockGovernorAddr: Address,
+  governors: Array<{ addr: Address; name: string }>,
   sendTxFn: SendTxFn
 ): Promise<DiscoveredProposal[]> {
-  let newProposals: DiscoveredProposal[] = [];
+  const newProposals: DiscoveredProposal[] = [];
 
-  // Try Tally first — but only once per 5 min globally (not per-governor)
-  const now = Date.now();
-  if (tallyAvailable !== false && now - tallyLastFetched > 290_000) {
-    tallyLastFetched = now;
+  // 1. Fetch from Tally
+  try {
     const tallyProposals = await fetchFromTally();
     for (const p of tallyProposals) {
       if (!seenProposals.has(p.externalId)) {
-        seenProposals.set(p.externalId, p);
+        seenProposals.add(p.externalId);
+        allProposals.push(p);
         newProposals.push(p);
       }
     }
+  } catch (err: any) {
+    console.log(`[Discovery] Tally error: ${err?.message?.slice(0, 50)}`);
   }
 
-  // If Tally returned nothing new AND no simulated proposals were generated recently,
-  // generate one simulated proposal. But only if we haven't already generated one this cycle.
-  if (newProposals.length === 0 && tallyAvailable === false) {
-    console.log("[Discovery] Using simulated proposal feed (Tally unavailable)");
-    const p = generateSimulatedProposal();
-    if (!seenProposals.has(p.externalId)) {
-      seenProposals.set(p.externalId, p);
-      newProposals.push(p);
+  // 2. Fetch from Snapshot
+  try {
+    const snapshotProposals = await fetchFromSnapshot();
+    for (const p of snapshotProposals) {
+      if (!seenProposals.has(p.externalId)) {
+        seenProposals.add(p.externalId);
+        allProposals.push(p);
+        newProposals.push(p);
+      }
+    }
+  } catch (err: any) {
+    console.log(`[Discovery] Snapshot error: ${err?.message?.slice(0, 50)}`);
+  }
+
+  // 3. If no real proposals found, generate simulated ones
+  if (newProposals.length === 0) {
+    const sim = generateSimulatedProposal();
+    if (!seenProposals.has(sim.externalId)) {
+      seenProposals.add(sim.externalId);
+      allProposals.push(sim);
+      newProposals.push(sim);
     }
   }
 
-  // Mirror new proposals to MockGovernor
-  for (const p of newProposals) {
-    await mirrorToMockGovernor(p, mockGovernorAddr, sendTxFn);
+  // 4. Mirror new proposals to MockGovernor (max 3 per poll to avoid nonce issues)
+  const toMirror = newProposals.slice(0, 3);
+  for (const p of toMirror) {
+    await mirrorToMockGovernor(p, governors, sendTxFn);
+    await sleep(2000); // space out txs to avoid nonce collisions
   }
 
   if (newProposals.length > 0) {
-    logParentAction(
-      "discovery_poll",
-      {
-        source: tallyAvailable ? "tally" : "simulated",
-        totalSeen: seenProposals.size,
-      },
-      {
-        newProposals: newProposals.length,
-        daos: newProposals.map((p) => p.daoName),
-      }
-    );
+    const sources = [...new Set(newProposals.map(p => p.source))];
+    console.log(`[Discovery] ${newProposals.length} new proposals (${sources.join("+")}), ${seenProposals.size} total tracked`);
   }
 
   return newProposals;
@@ -458,47 +437,34 @@ async function pollOnce(
 
 // ── Exported API ──
 
+const POLL_INTERVAL_MS = 3 * 60 * 1000; // 3 minutes
+
 /**
- * Start the proposal feed. Polls Tally (or simulated feed) every 5 minutes
- * and mirrors discovered proposals to the MockGovernor contract.
- *
- * @param mockGovernorAddr - Address of deployed MockGovernor
- * @param sendTxFn - Function to send transactions (e.g., sendTxAndWait)
- * @returns Cleanup function to stop the feed
+ * Start the multi-source proposal feed.
+ * Polls Tally + Snapshot + simulated feed every 3 minutes
+ * and mirrors discovered proposals to MockGovernor contracts.
  */
 export async function startProposalFeed(
-  mockGovernorAddr: Address,
+  governors: Array<{ addr: Address; name: string }>,
   sendTxFn: SendTxFn
 ): Promise<() => void> {
-  console.log("[Discovery] Starting proposal feed...");
-  console.log(
-    `[Discovery] MockGovernor: ${mockGovernorAddr}`
-  );
-  console.log(
-    `[Discovery] Poll interval: ${POLL_INTERVAL_MS / 1000}s`
-  );
+  console.log("[Discovery] Starting multi-source proposal feed...");
+  console.log(`[Discovery] Sources: Tally (${TALLY_ORGS.length} DAOs) + Snapshot (${SNAPSHOT_SPACES.length} spaces) + simulated`);
+  console.log(`[Discovery] Governors: ${governors.map(g => g.name).join(", ")}`);
+  console.log(`[Discovery] Poll interval: ${POLL_INTERVAL_MS / 1000}s`);
 
-  // Initial poll immediately
-  await pollOnce(mockGovernorAddr, sendTxFn);
+  // Initial poll
+  await pollOnce(governors, sendTxFn);
 
-  // Set up recurring poll
+  // Recurring poll
   feedInterval = setInterval(async () => {
     try {
-      await pollOnce(mockGovernorAddr, sendTxFn);
+      await pollOnce(governors, sendTxFn);
     } catch (err: any) {
-      console.error(
-        `[Discovery] Poll error: ${err?.message || String(err)}`
-      );
+      console.log(`[Discovery] Poll error: ${err?.message?.slice(0, 60)}`);
     }
   }, POLL_INTERVAL_MS);
 
-  logParentAction(
-    "discovery_started",
-    { mockGovernorAddr, pollIntervalMs: POLL_INTERVAL_MS },
-    { tallyAvailable }
-  );
-
-  // Return cleanup function
   return () => {
     if (feedInterval) {
       clearInterval(feedInterval);
@@ -509,22 +475,20 @@ export async function startProposalFeed(
 }
 
 /**
- * Trigger a single poll immediately (useful for demos).
+ * Trigger a single poll immediately.
  */
 export async function pollNow(
-  mockGovernorAddr: Address,
+  governors: Array<{ addr: Address; name: string }>,
   sendTxFn: SendTxFn
 ): Promise<DiscoveredProposal[]> {
-  return pollOnce(mockGovernorAddr, sendTxFn);
+  return pollOnce(governors, sendTxFn);
 }
 
 /**
- * Get all discovered proposals (cached).
+ * Get all discovered proposals (newest first).
  */
 export function getLatestProposals(): DiscoveredProposal[] {
-  return Array.from(seenProposals.values()).sort(
-    (a, b) => b.discoveredAt - a.discoveredAt
-  );
+  return [...allProposals].sort((a, b) => b.discoveredAt - a.discoveredAt);
 }
 
 /**
@@ -535,9 +499,18 @@ export function getDiscoveredDAOs(): DiscoveredDAO[] {
 }
 
 /**
- * Check whether Tally API is available.
- * Returns null if not yet checked.
+ * Get feed stats.
  */
-export function isTallyAvailable(): boolean | null {
-  return tallyAvailable;
+export function getFeedStats() {
+  return {
+    totalProposals: seenProposals.size,
+    tallyDAOs: TALLY_ORGS.length,
+    snapshotSpaces: SNAPSHOT_SPACES.length,
+    discoveredDAOs: discoveredDAOs.size,
+    sources: {
+      tally: allProposals.filter(p => p.source === "tally").length,
+      snapshot: allProposals.filter(p => p.source === "snapshot").length,
+      simulated: allProposals.filter(p => p.source === "simulated").length,
+    },
+  };
 }

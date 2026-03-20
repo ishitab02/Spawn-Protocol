@@ -28,7 +28,7 @@ import { registerAgent, updateAgentMetadata } from "./identity.js";
 import { createVotingDelegation } from "./delegation.js";
 import { logYieldStatus, initSimulatedTreasury } from "./lido.js";
 import { logParentAction, logChildAction } from "./logger.js";
-import { startProposalFeed, getDiscoveredDAOs, getLatestProposals } from "./discovery.js";
+import { startProposalFeed, getDiscoveredDAOs, getLatestProposals, getFeedStats } from "./discovery.js";
 import { parseEther } from "viem";
 import type { DeployedAddresses } from "./types.js";
 import { fileURLToPath } from "url";
@@ -708,13 +708,14 @@ async function main() {
   await initChain(BASE_CONFIG);
   await initChain(CELO_CONFIG);
 
-  // Start discovery feed — Tally API + simulated proposals
+  // Start multi-source discovery feed — Tally + Snapshot + simulated
   console.log("\n── Starting proposal discovery feed ──");
   try {
-    for (const gov of BASE_CONFIG.governors) {
-      await startProposalFeed(gov.addr, BASE_CONFIG.sendTx as any);
-    }
-    console.log(`[Discovery] Feed active for ${BASE_CONFIG.governors.length} governors`);
+    await startProposalFeed(
+      BASE_CONFIG.governors.map(g => ({ addr: g.addr, name: g.name })),
+      BASE_CONFIG.sendTx as any
+    );
+    console.log(`[Discovery] Feed active — Tally + Snapshot + simulated`);
   } catch (err: any) {
     console.log(`[Discovery] Feed failed to start: ${err?.message?.slice(0, 50)}. Using proposal bank instead.`);
   }
@@ -731,10 +732,12 @@ async function main() {
     console.log("\n── New proposals appearing ──");
     await createProposalOnChain(BASE_CONFIG);
     await createProposalOnChain(CELO_CONFIG);
-    // Log discovered DAOs for visibility
+    // Log discovered DAOs and feed stats
     const daos = getDiscoveredDAOs();
+    const stats = getFeedStats();
     if (daos.length > 0) {
-      console.log(`[Discovery] DAOs tracked: ${daos.map(d => `${d.name}(${d.proposalCount})`).join(", ")}`);
+      console.log(`[Discovery] DAOs: ${daos.map(d => `${d.name}(${d.proposalCount})`).join(", ")}`);
+      console.log(`[Discovery] Feed: ${stats.sources.tally} tally + ${stats.sources.snapshot} snapshot + ${stats.sources.simulated} simulated = ${stats.totalProposals} total`);
     }
   }, PROPOSAL_INTERVAL_MS);
 
