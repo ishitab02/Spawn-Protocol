@@ -112,14 +112,6 @@ export function AgentCard({ child, justVoted = false }: AgentCardProps) {
           </div>
         </div>
 
-        {/* Budget */}
-        <div className="mt-2 pt-2 border-t border-gray-800">
-          <span className="text-xs text-gray-600">Budget: </span>
-          <span className="font-mono text-xs text-gray-400">
-            {(Number(child.budget) / 1e18).toFixed(4)} ETH
-          </span>
-        </div>
-
         {justVoted && (
           <>
             <div className="absolute inset-0 rounded-lg bg-blue-400/10 animate-pulse pointer-events-none" />
