@@ -21,8 +21,9 @@ if (!childAddr || !governanceAddr || !label) {
   process.exit(1);
 }
 
-// Child's unique private key, passed by the parent swarm
+// Child's unique private key and perspective, passed by the parent swarm
 const childPrivateKey = process.env.CHILD_PRIVATE_KEY as `0x${string}` | undefined;
+const childPerspective = process.env.CHILD_PERSPECTIVE || undefined;
 
 async function main() {
   let values = "Prioritize decentralization, support public goods, oppose inflation";
@@ -44,10 +45,15 @@ async function main() {
     console.log(`[ChildProcess:${label}] PID ${process.pid} starting (shared wallet)...`);
   }
 
+  // Prepend perspective to governance values if provided
+  const fullValues = childPerspective
+    ? `${childPerspective}\n\nOwner's governance values: ${values}`
+    : values;
+
   await runChildLoop(
     childAddr as `0x${string}`,
     governanceAddr as `0x${string}`,
-    values,
+    fullValues,
     label,
     childPrivateKey
   );

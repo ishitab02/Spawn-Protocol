@@ -25,7 +25,7 @@ export function ChainProvider({ children }: { children: ReactNode }) {
   const client = chainId === "base" ? baseSepoliaClient : celoSepoliaClient;
   const explorerBase = chainId === "base"
     ? "https://sepolia.basescan.org"
-    : "https://celo-alfajores.blockscout.com";
+    : "https://celo-sepolia.celoscan.io";
 
   return (
     <ChainContext.Provider value={{ chainId, setChainId, client: client as unknown as PublicClient, explorerBase }}>

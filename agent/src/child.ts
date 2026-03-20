@@ -1,4 +1,4 @@
-import { publicClient, walletClient, account } from "./chain.js";
+import { publicClient, walletClient, account, celoPublicClient } from "./chain.js";
 import { createWalletClientFromKey } from "./wallet-manager.js";
 import { ChildGovernorABI, MockGovernorABI } from "./abis.js";
 import { reasonAboutProposal, summarizeProposal, assessProposalRisk } from "./venice.js";
@@ -15,13 +15,16 @@ export async function runChildLoop(
   childLabel: string,
   childPrivateKey?: `0x${string}`
 ) {
+  // Select the right chain's publicClient based on CHILD_CHAIN env var
+  const chainName = process.env.CHILD_CHAIN || "base-sepolia";
+  const readClient: any = chainName === "celo-sepolia" ? celoPublicClient : publicClient;
+
   // Create child-specific wallet client if a private key was provided
-  // Using 'any' to avoid viem's strict chain typing on generic WalletClient
   let childWalletClient: any;
   if (childPrivateKey) {
-    childWalletClient = createWalletClientFromKey(childPrivateKey);
+    childWalletClient = createWalletClientFromKey(childPrivateKey, chainName);
     const childAccount = childWalletClient.account;
-    console.log(`[Child:${childLabel}] Using unique wallet: ${childAccount?.address}`);
+    console.log(`[Child:${childLabel}] Using unique wallet: ${childAccount?.address} on ${chainName}`);
   } else {
     childWalletClient = walletClient;
     console.log(`[Child:${childLabel}] Using shared parent wallet: ${account.address}`);
@@ -42,7 +45,7 @@ Your owner's governance values: ${governanceValues}`;
 
   while (true) {
     try {
-      const isActive = (await publicClient.readContract({
+      const isActive = (await readClient.readContract({
         address: childAddr,
         abi: ChildGovernorABI,
         functionName: "active",
@@ -53,7 +56,7 @@ Your owner's governance values: ${governanceValues}`;
         break;
       }
 
-      await childCycle(childAddr, governanceAddr, governanceValues, childLabel, systemPrompt, litAvailable, childWalletClient);
+      await childCycle(childAddr, governanceAddr, governanceValues, childLabel, systemPrompt, litAvailable, childWalletClient, readClient);
     } catch (err) {
       console.error(`[Child:${childLabel}] Cycle error:`, err);
     }
@@ -68,10 +71,11 @@ async function childCycle(
   childLabel: string,
   systemPrompt: string,
   litAvailable: boolean = false,
-  childWalletClient: any = walletClient
+  childWalletClient: any = walletClient,
+  readClient: any = publicClient
 ) {
   // 1. Get total proposal count
-  const proposalCount = (await publicClient.readContract({
+  const proposalCount = (await readClient.readContract({
     address: governanceAddr,
     abi: MockGovernorABI,
     functionName: "proposalCount",
@@ -79,7 +83,7 @@ async function childCycle(
 
   for (let i = 1n; i <= proposalCount; i++) {
     // 2. Check proposal state (1 = Active)
-    const state = (await publicClient.readContract({
+    const state = (await readClient.readContract({
       address: governanceAddr,
       abi: MockGovernorABI,
       functionName: "state",
@@ -89,7 +93,7 @@ async function childCycle(
     if (state === 1) {
       // Active
       // Check if already voted
-      const voteIndex = (await publicClient.readContract({
+      const voteIndex = (await readClient.readContract({
         address: childAddr,
         abi: ChildGovernorABI,
         functionName: "proposalToVoteIndex",
@@ -98,7 +102,7 @@ async function childCycle(
 
       if (voteIndex === 0n) {
         // Haven't voted yet
-        const proposal = (await publicClient.readContract({
+        const proposal = (await readClient.readContract({
           address: governanceAddr,
           abi: MockGovernorABI,
           functionName: "getProposal",
@@ -109,7 +113,19 @@ async function childCycle(
           `[Child:${childLabel}] Evaluating proposal ${i}: ${proposal.description}`
         );
 
-        // Venice reasoning — vote decision (summary + risk available but skipped in swarm for speed)
+        // Venice reasoning step 1: Summarize proposal
+        try {
+          const summary = await summarizeProposal(proposal.description);
+          console.log(`[Child:${childLabel}] Venice Summary: ${summary.slice(0, 120)}...`);
+        } catch {}
+
+        // Venice reasoning step 2: Risk assessment
+        try {
+          const risk = await assessProposalRisk(proposal.description, governanceValues);
+          console.log(`[Child:${childLabel}] Venice Risk: ${risk.riskLevel} — ${risk.factors.slice(0, 80)}`);
+        } catch {}
+
+        // Venice reasoning step 3: Vote decision
         const { decision, reasoning } = await reasonAboutProposal(
           proposal.description,
           governanceValues,
@@ -148,7 +164,7 @@ async function childCycle(
           args: [i, support, encryptedRationale],
         });
 
-        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        const receipt = await readClient.waitForTransactionReceipt({ hash });
         console.log(
           `[Child:${childLabel}] Voted ${decision} on proposal ${i} (tx: ${receipt.transactionHash})`
         );
@@ -158,7 +174,7 @@ async function childCycle(
     // Check for proposals where voting ended — reveal rationale
     if (state >= 2) {
       // Defeated, Succeeded, or Executed
-      const voteIndex = (await publicClient.readContract({
+      const voteIndex = (await readClient.readContract({
         address: childAddr,
         abi: ChildGovernorABI,
         functionName: "proposalToVoteIndex",
@@ -166,7 +182,7 @@ async function childCycle(
       })) as bigint;
 
       if (voteIndex > 0n) {
-        const history = (await publicClient.readContract({
+        const history = (await readClient.readContract({
           address: childAddr,
           abi: ChildGovernorABI,
           functionName: "getVotingHistory",
@@ -192,7 +208,7 @@ async function childCycle(
 
               if (stored.litEncrypted) {
                 // Fetch proposal end time for the decryption condition
-                const proposalForReveal = (await publicClient.readContract({
+                const proposalForReveal = (await readClient.readContract({
                   address: governanceAddr,
                   abi: MockGovernorABI,
                   functionName: "getProposal",
@@ -222,7 +238,7 @@ async function childCycle(
             functionName: "revealRationale",
             args: [i, decryptedRationaleHex],
           });
-          await publicClient.waitForTransactionReceipt({ hash });
+          await readClient.waitForTransactionReceipt({ hash });
           console.log(`[Child:${childLabel}] Rationale revealed for proposal ${i}`);
         }
       }

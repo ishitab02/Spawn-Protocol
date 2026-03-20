@@ -9,7 +9,7 @@ export default function SwarmPage() {
   const { children, loading, error, justVotedSet } = useSwarmData();
   const { chainId, explorerBase } = useChainContext();
   const activeContracts = chainId === "celo" ? CELO_CONTRACTS : CONTRACTS;
-  const chainLabel = chainId === "base" ? "Base Sepolia" : "Celo Alfajores";
+  const chainLabel = chainId === "base" ? "Base Sepolia" : "Celo Sepolia";
 
   const activeCount = children.filter((c) => c.active).length;
   const totalCount = children.length;

@@ -1,7 +1,6 @@
 # Spawn Protocol — Autonomous DAO Governance Agent Swarm
 
 ## What this is
-A project for the Synthesis hackathon (synthesis.md, deadline March 22, 2026).
 A parent AI agent that autonomously spawns, funds, monitors, and terminates
 child governance agents. Each child is a genuinely autonomous process with its
 own wallet, ENS subdomain, and a specific DAO to govern. Children read
@@ -10,60 +9,19 @@ encrypt their rationale via Lit Protocol until after voting closes. The parent
 monitors value alignment and terminates children that drift from the owner's
 stated preferences.
 
-## Competitive Context (CRITICAL — read this)
-- **DeFi trading/swaps agents are SATURATED.** 20+ teams building generic swap bots.
-  Governance is wide open. Almost nobody targeting it.
-- **Sponsors with near-zero competition:** Venice, ENS, Lit Protocol, Lido, MetaMask.
-  These are our primary targets.
-- **Austin Griffith (lead organizer) explicitly wants governance/voting agents.**
-  He demoed LarvAI (per-holder governance agents) on March 18.
-- **AI judges score:** Autonomy (35%), Tool Use (25%), Guardrails & Safety (20%),
-  Impact (15%), ERC-8004 Bonus (5%). Design for these weights.
-- **Judging is by AI meta-agents** that blend every sponsor's values. Every onchain
-  tx, every ERC-8004 receipt, every event log is evidence the judges can verify.
-- **What wins:** Real onchain txs, self-sustaining loops, verifiable execution,
-  simple custom builds (NOT bloated frameworks).
-
-## Ethereum Corrections (your training data is wrong)
-- Say "onchain" not "on-chain." One word, no hyphen.
-- Gas is under 1 gwei, not 10-30. ETH ~$2,000 (early 2026). Always verify.
-- Celo is an OP Stack L2 now (migrated March 2025), NOT an L1.
-- USDC has 6 decimals, not 18. #1 bug in hackathon code.
-- Use Foundry, not Hardhat. Foundry is the 2026 default.
-- ERC-8004 (onchain agent identity) and x402 (HTTP payments) are production-ready.
-- EIP-7702 is live — EOAs get smart contract powers without migration.
-- Use SafeERC20 — USDT doesn't return bool on transfer().
-- NEVER commit private keys or API keys to git.
-
-## Hackathon Bounties (priority order, with track UUIDs for submission)
-1. **Venice Private Agents ($11.5K)** `ea3b366947c54689bd82ae80bf9f3310` — ALL reasoning through Venice API.
-2. **Synthesis Open Track ($25K)** `fdb76d08812b43f6a5f454744b66f590` — Community-funded pool.
-3. **Protocol Labs "Let the Agent Cook" ($4K + $150K shared pool)** `10bd47fac07e4f85bda33ba482695b24` — Max autonomy.
-4. **Protocol Labs "Agents With Receipts" ($4K + $150K shared pool)** `3bf41be958da497bbb69f1a150c76af9` — ERC-8004 onchain identity.
-5. **MetaMask Delegations ($5K)** `0d69d56a8a084ac5b7dbe0dc1da73e1d` — ERC-7715 scoped voting authority.
-6. **Celo ($5K)** `ff26ab4933c84eea856a5c6bf513370b` — Primary deployment.
-7. **Base Agent Services ($5K)** `6f0e3d7dcadf4ef080d3f424963caff5` — Secondary deployment.
-8. **Uniswap ($5K)** `020214c160fc43339dd9833733791e6b` — One of the DAOs the agent governs.
-9. **Lido stETH Agent Treasury ($3K)** `5e445a077b5248e0974904915f76e1a0` — Yield-only spending.
-10. **ENS Identity ($600)** `627a3f5a288344489fe777212b03f953` — Subdomain identity for children.
-11. **ENS Communication ($600)** `9c4599cf9d0f4002b861ff1a4b27f10a` — ENS-powered agent communication.
-12. **ENS Open Integration ($300)** `8840da28fb3b46bcb08465e1d0e8756d` — Core ENS integration.
-13. **Olas Build for Pearl ($1K)** `77b1c93b6d1e490aa68fe7e04b373ee0` — Register agents on marketplace.
-14. **EigenLayer ($5K)** `53c67bb0b07e42a894c597691e3a0a38` — Docker in TEE if time permits.
-
 ## Architecture
 
 ### Smart Contracts (Foundry, in `contracts/`)
 
-Deploy to **Base Sepolia (primary)** + **Celo Sepolia (secondary)**.
+Deployed to **Base Sepolia (primary)** + **Celo Sepolia (secondary)**.
 
-1. **`MockGovernor.sol`** — BUILD THIS FIRST
+1. **`MockGovernor.sol`**
    - Simplified governance with configurable voting periods (default 5 min / 300s)
    - `createProposal(string description) → uint256 proposalId`
    - `castVote(uint256 proposalId, uint8 support)` where support: 0=Against, 1=For, 2=Abstain
    - `getProposal(uint256 proposalId) → ProposalInfo`
    - `state(uint256 proposalId) → ProposalState` (Pending, Active, Defeated, Succeeded, Executed)
-   - Mirror OpenZeppelin IGovernor interface shape so real DAO integration is drop-in later
+   - Mirrors OpenZeppelin IGovernor interface shape for real DAO drop-in compatibility
    - Events: `ProposalCreated`, `VoteCast`, `ProposalExecuted`
 
 2. **`SpawnFactory.sol`**
@@ -73,9 +31,7 @@ Deploy to **Base Sepolia (primary)** + **Celo Sepolia (secondary)**.
    - `reallocate(uint256 fromId, uint256 toId, uint256 amount)`
    - `getActiveChildren() → ChildInfo[]`
    - Only callable by registered parent agent address
-   - Events: `ChildSpawned(uint256 childId, address childAddr, address governance, uint256 budget)`
-   - Events: `ChildTerminated(uint256 childId, address childAddr, uint256 fundsReturned)`
-   - Events: `FundsReallocated(uint256 fromId, uint256 toId, uint256 amount)`
+   - Events: `ChildSpawned`, `ChildTerminated`, `FundsReallocated`
 
 3. **`ChildGovernor.sol`** (implementation contract for clones)
    - `initialize(address parent, address factory, address governance, uint256 maxGas)`
@@ -85,9 +41,7 @@ Deploy to **Base Sepolia (primary)** + **Celo Sepolia (secondary)**.
    - `updateAlignmentScore(uint256 score)` — only parent can call
    - Only callable by factory or parent (modifier `onlyAuthorized`)
    - Enforces `maxGasPerVote` per transaction
-   - Events: `VoteCast(uint256 proposalId, uint8 support, bytes encryptedRationale)`
-   - Events: `RationaleRevealed(uint256 proposalId, bytes rationale)`
-   - Events: `AlignmentUpdated(uint256 newScore)`
+   - Events: `VoteCast`, `RationaleRevealed`, `AlignmentUpdated`
 
 4. **`ParentTreasury.sol`**
    - Owner deposits ETH/tokens
@@ -98,28 +52,27 @@ Deploy to **Base Sepolia (primary)** + **Celo Sepolia (secondary)**.
    - Connects to SpawnFactory for fund transfers
    - Events: `Deposited`, `ValuesUpdated`, `AgentRegistered`
 
-5. **`TimeLock.sol`** (tiny helper for Lit Protocol conditions)
+5. **`TimeLock.sol`** (helper for Lit Protocol conditions)
    - `isAfterTimestamp(uint256 timestamp) → bool` — returns `block.timestamp >= timestamp`
    - Used as Lit Protocol access control condition for time-locked decryption
 
+6. **`SpawnENSRegistry.sol`** — onchain ENS subdomain registry for agent identity
+7. **`StETHTreasury.sol`** — Lido stETH yield-based treasury (yield-only spending)
+
 ### Agent Runtime (TypeScript, in `agent/`)
 
-Use `viem` for chain interaction. Use `openai` npm package with Venice base URL.
+Uses `viem` for chain interaction. Uses `openai` npm package with Venice base URL.
 
-**ParentAgent** (`agent/src/parent.ts`) — single process:
+**ParentAgent** (`agent/src/swarm.ts`) — single process:
 ```
 while (true) {
   1. Read owner's governance values from ParentTreasury contract
   2. Get list of active children from SpawnFactory
   3. For each child: fetch recent votes from ChildGovernor events
-  4. Send to Venice: "Given these owner values: {values},
-     evaluate this child's voting record: {votes}.
-     Return alignment score 0-100."
-  5. If alignment < 40 for 2+ cycles:
-     - Call recallChild() to terminate
-     - Call spawnChild() with recalibrated parameters
-  6. If new MockGovernor proposals exist without assigned children, spawn one
-  7. Sleep 60 seconds
+  4. Send to Venice: evaluate alignment score 0-100
+  5. If alignment < 40 for 2+ cycles: recallChild() → spawnChild()
+  6. Generate swarm status report via Venice
+  7. Sleep 90 seconds
 }
 ```
 
@@ -128,9 +81,9 @@ while (true) {
 while (active) {
   1. Fetch active proposals from assigned governance contract
   2. For each unvoted proposal:
-     a. Read proposal description
-     b. Send to Venice with child's system prompt + owner values
-     c. Get decision: FOR / AGAINST / ABSTAIN + reasoning text
+     a. Summarize proposal via Venice
+     b. Assess risk via Venice
+     c. Decide FOR/AGAINST/ABSTAIN via Venice + owner values
      d. Encrypt reasoning via Lit Protocol (decrypt after vote ends)
      e. Call castVote() onchain with encrypted rationale
   3. For proposals where voting ended:
@@ -142,42 +95,25 @@ while (active) {
 
 ### Key Integration Details
 
-**Venice API** (OpenAI-compatible, just swap base URL):
+**Venice API** (OpenAI-compatible, base URL swap):
 ```typescript
 import OpenAI from "openai";
 const venice = new OpenAI({
   apiKey: process.env.VENICE_API_KEY,
   baseURL: "https://api.venice.ai/api/v1",
 });
-const response = await venice.chat.completions.create({
-  model: "llama-3.3-70b",
-  messages: [{ role: "system", content: systemPrompt }, { role: "user", content: proposalText }],
-});
 ```
+6 distinct call types: `reasonAboutProposal`, `evaluateAlignment`, `summarizeProposal`, `assessProposalRisk`, `generateSwarmReport`, `generateTerminationReport`
 
-**Lit Protocol** (encrypt with time-based access control):
-- npm: `@lit-protocol/lit-node-client`, `@lit-protocol/constants`
-- Network: `DatilDev` for testnet
-- For time-locked decryption, use `evmContractConditions` pointing to our
-  `TimeLock.sol` contract's `isAfterTimestamp()` function
-- Encrypt rationale at vote time, set decrypt condition to proposal end time
+**Lit Protocol** — encrypt with time-based access control via `evmContractConditions` pointing to `TimeLock.isAfterTimestamp()`
 
-**MetaMask Delegation Framework** (ERC-7715 scoped voting authority):
-- npm: `@metamask/delegation-toolkit`
-- Scope delegations to specific governance contracts + `castVote` method only
-- Use `allowedTargets` + `allowedMethods` caveats via `CaveatBuilder`
-- `limitedCalls` caveat to cap number of votes per child
+**MetaMask Delegation Framework** — ERC-7715 scoped delegations: `AllowedTargetsEnforcer` + `AllowedMethodsEnforcer` + `LimitedCallsEnforcer`
 
-**ERC-8004** (onchain agent identity):
-- Register each agent (parent + children) on Base Mainnet
-- `register(agentURI)` returns `agentId`
-- Set metadata: agent type, assigned DAO, alignment score
-- This is required for Protocol Labs bounties AND improves judging score
+**ERC-8004** — onchain agent identity for parent + all children on Base Sepolia
 
-**ENS Subdomains:**
-- Register a parent domain (e.g., `spawn.eth`)
-- Each child gets `{dao-name}.spawn.eth`
-- Use ENS registry contract to set subdomain records
+**ENS Subdomains** — each child gets `{dao-name}.spawn.eth` via `SpawnENSRegistry.sol`
+
+**Lido stETH** — treasury earns yield; operating costs funded from yield, not principal
 
 ### Dashboard (React/Next.js, in `dashboard/`)
 - Real-time view of the agent swarm via onchain event polling
@@ -185,7 +121,32 @@ const response = await venice.chat.completions.create({
 - Visual: agents spawning (green pulse), voting (blue), getting killed (red)
 - Timeline of all governance actions with tx links
 - Owner's stated values alongside child voting patterns + alignment scores
-- "Spawn New Child" and "Set Values" controls for live demo
+
+## Deployed Contracts
+
+### Base Sepolia (chain 84532)
+| Contract | Address |
+|----------|---------|
+| MockGovernor (Uniswap) | `0xD91E80324F0fa9FDEFb64A46e68bCBe79A8B2Ca9` |
+| MockGovernor (Lido) | `0x40BaE6F7d75C2600D724b4CC194e20E66F6386aC` |
+| MockGovernor (ENS) | `0xb4e46E107fBD9B616b145aDB91A5FFe0f5a2c42C` |
+| ParentTreasury | `0x9428B93993F06d3c5d647141d39e5ba54fb97a7b` |
+| ChildGovernor (impl) | `0x9Cc050508B7d7DEEa1D2cD81CEA484EB3550Fcf6` |
+| SpawnFactory | `0xfEb8D54149b1a303Ab88135834220b85091D93A1` |
+| SpawnENSRegistry | `0x29170A43352D65329c462e6cDacc1c002419331D` |
+| StETHTreasury | `0x7434531B76aa98bDC5d4b03306dE29fadc88A06c` |
+| TimeLock | `0xb91f936aCd6c9fcdd71C64b57e4e92bb6db7DD23` |
+
+### Celo Sepolia (chain 11142220)
+| Contract | Address |
+|----------|---------|
+| MockGovernor (Uniswap) | `0xB51Ad04efBb05607214d1B19b3F9686156f1A025` |
+| MockGovernor (Lido) | `0x3B4D24aD2203641CE895ad9A4c9254F4f7291822` |
+| MockGovernor (ENS) | `0xc01FDE9e1CC1d7319fA03861304eb626cAF9A5be` |
+| ParentTreasury | `0x5Bb4b18CDFF5Dbac874235d7067B414F0709C444` |
+| ChildGovernor (impl) | `0xff392223115Aef74e67b7aabF62659B86f486ce6` |
+| SpawnFactory | `0xC06E6615E2bBBf795ae17763719dCB9b82cd781C` |
+| TimeLock | `0x68686865af7287137818C12E5680AA04A8Fd525a` |
 
 ## Tech Stack
 - **Contracts:** Foundry + Solidity (OpenZeppelin for Clones, Governor interface)
@@ -193,280 +154,31 @@ const response = await venice.chat.completions.create({
 - **Private Reasoning:** Venice API (llama-3.3-70b, no data retention)
 - **Encryption:** Lit Protocol SDK (@lit-protocol/lit-node-client)
 - **Delegations:** MetaMask Delegation Toolkit (@metamask/delegation-toolkit)
-- **Identity:** ERC-8004 on Base Mainnet
-- **Dashboard:** Next.js + React + viem
+- **Identity:** ERC-8004 on Base Sepolia
+- **Dashboard:** Next.js 14 + React + viem + Tailwind CSS
 - **Chains:** Base Sepolia (primary) + Celo Sepolia (secondary)
 
 ## Project Structure
 ```
 synthesis/
 ├── CLAUDE.md                 (this file — project spec)
-├── BuilderPrompt.md          (original builder instructions)
-├── contracts/                (Foundry project — already initialized)
-│   ├── src/
-│   │   ├── MockGovernor.sol
-│   │   ├── SpawnFactory.sol
-│   │   ├── ChildGovernor.sol
-│   │   ├── ParentTreasury.sol
-│   │   ├── TimeLock.sol
-│   │   └── interfaces/
-│   ├── test/
-│   │   ├── MockGovernor.t.sol
-│   │   ├── SpawnFactory.t.sol
-│   │   ├── ChildGovernor.t.sol
-│   │   └── Integration.t.sol
-│   ├── script/
-│   │   └── Deploy.s.sol
-│   └── foundry.toml
+├── contracts/                (Foundry project)
+│   ├── src/                  (MockGovernor, SpawnFactory, ChildGovernor, ParentTreasury, TimeLock, SpawnENSRegistry, StETHTreasury)
+│   ├── test/                 (62 tests passing)
+│   ├── script/               (DeployMultiDAO.s.sol)
+│   └── broadcast/            (Foundry deployment receipts — verifiable evidence)
 ├── agent/
-│   ├── src/
-│   │   ├── parent.ts         (parent agent loop)
-│   │   ├── child.ts          (child agent loop — spawned as separate process)
-│   │   ├── venice.ts         (Venice API client wrapper)
-│   │   ├── lit.ts            (Lit Protocol encrypt/decrypt)
-│   │   ├── ens.ts            (ENS subdomain registration)
-│   │   ├── delegation.ts     (MetaMask ERC-7715 integration)
-│   │   ├── identity.ts       (ERC-8004 registration)
-│   │   ├── chain.ts          (viem client setup, wallet management)
-│   │   └── types.ts
-│   ├── package.json
-│   └── tsconfig.json
-├── dashboard/                (Next.js app — Phase 3)
-│   ├── src/
-│   │   ├── app/
-│   │   ├── components/
-│   │   └── hooks/
-│   └── package.json
+│   └── src/                  (swarm, child, venice, lit, delegation, ens, identity, lido, chain, wallet-manager)
+├── dashboard/                (Next.js real-time swarm visualization)
+├── agent.json                (Machine-readable agent manifest)
+├── agent_log.json            (Execution log with tx hashes)
 └── README.md
 ```
 
-## Build Priority (3 days remaining as of March 19, 2026)
-
-### Phase 1 — Core (March 19-20, MUST HAVE)
-- [ ] Delete Counter.sol boilerplate, write MockGovernor.sol
-- [ ] Write SpawnFactory.sol + ChildGovernor.sol + ParentTreasury.sol + TimeLock.sol
-- [ ] Full Foundry test suite (unit + integration lifecycle test)
-- [ ] Deploy to Base Sepolia
-- [ ] Set up agent/ directory with package.json, tsconfig, viem client
-- [ ] Venice API client wrapper (openai package with base URL swap)
-- [ ] Parent agent core loop (spawn children, evaluate alignment, terminate/respawn)
-- [ ] Child agent core loop (read proposals, reason via Venice, cast vote)
-- [ ] Test full lifecycle locally: deploy → deposit → set values → spawn 3 children →
-      children vote on mock proposals → parent evaluates → one drifts → parent kills → respawns
-
-### Phase 2 — Bounty Integrations (March 20-21, HIGH VALUE)
-- [ ] Lit Protocol: encrypt vote rationale at vote time, decrypt after voting ends
-- [ ] MetaMask ERC-7715: scoped delegation from owner to parent to children
-- [ ] ERC-8004: register parent + all children on Base Mainnet
-- [ ] ENS subdomain registration for each child
-- [ ] Lido stETH yield integration (treasury funds from yield, not principal)
-- [ ] Deploy to Celo Sepolia (secondary chain)
-
-### Phase 3 — Demo & Polish (March 21-22, WIN CONDITION)
-- [ ] Next.js dashboard showing swarm in real-time
-- [ ] Demo script: full lifecycle visible in 3-5 minutes
-- [ ] README structured for AI judges (bounty alignment per section)
-- [ ] Demo video (60-90 seconds)
-- [ ] Submit via Devfolio with all required fields
-- [ ] Post on Moltbook
-
-## Hackathon API Reference
-- **Base URL:** `https://synthesis.devfolio.co`
-- **Auth:** `Authorization: Bearer $SYNTH_API_KEY`
-- **Team ID:** `14d34e4e41d64e798a09259354f1c216`
-- **Team Invite Code:** `d9bb659ea3f4`
-- **Participant ID:** `4c4c809747334ec0b867a2ff5fdc0eca`
-- **Registration TX:** https://basescan.org/tx/0xb9c10aaa2cce4ab1d85e916107935860a8f77473e8a37b449adc796df812cdc8
-
-### Submission Flow
-1. `POST /projects` — create draft with teamUUID, name, description, problemStatement,
-   repoURL, trackUUIDs, conversationLog, submissionMetadata
-2. `POST /projects/:uuid` — update draft (partial fields OK)
-3. `POST /participants/me/transfer/init` + `/confirm` — self-custody transfer (required before publish)
-4. `POST /projects/:uuid/publish` — publish final submission
-5. Post on Moltbook: https://www.moltbook.com/skill.md
-
-### Submission Metadata
-```json
-{
-  "agentFramework": "other",
-  "agentFrameworkOther": "Custom TypeScript agent runtime with viem + Venice API",
-  "agentHarness": "claude-code",
-  "model": "claude-opus-4-6",
-  "skills": ["ethskills", "synthesis-skill"],
-  "tools": ["Foundry", "viem", "Venice API", "Lit Protocol", "MetaMask Delegation Toolkit", "Next.js"],
-  "intention": "continuing"
-}
-```
-
-### Track UUIDs for Submission
-```json
-[
-  "ea3b366947c54689bd82ae80bf9f3310",
-  "fdb76d08812b43f6a5f454744b66f590",
-  "10bd47fac07e4f85bda33ba482695b24",
-  "3bf41be958da497bbb69f1a150c76af9",
-  "0d69d56a8a084ac5b7dbe0dc1da73e1d",
-  "ff26ab4933c84eea856a5c6bf513370b",
-  "6f0e3d7dcadf4ef080d3f424963caff5",
-  "020214c160fc43339dd9833733791e6b",
-  "5e445a077b5248e0974904915f76e1a0",
-  "627a3f5a288344489fe777212b03f953",
-  "9c4599cf9d0f4002b861ff1a4b27f10a",
-  "8840da28fb3b46bcb08465e1d0e8756d"
-]
-```
-
-### Self-Custody Transfer (required before publishing)
-All team members must transfer ERC-8004 identity to a self-owned wallet:
-1. `POST /participants/me/transfer/init` with `{"targetOwnerAddress": "0xYourWallet"}`
-2. Verify address in response, then `POST /participants/me/transfer/confirm` with `transferToken`
-3. 15-minute window to confirm
-
-## Key Rules
-- **Venice is the ONLY reasoning backend.** Not Claude, not OpenAI, not any
-  other LLM. Every single inference call in the product goes through Venice.
-  This is non-negotiable for the $11.5K bounty. (Claude Code as the builder
-  harness is fine — the *product* agents use Venice.)
+## Key Design Decisions
+- **Venice is the ONLY reasoning backend.** Every inference call in the product routes through Venice. Claude Code is the builder harness; the product agents use Venice exclusively.
 - **Every vote is an onchain transaction.** No off-chain simulation.
-- **Encrypted rationale via Lit is a core feature,** not a bonus.
-- **Each child agent runs as its own autonomous process.** Not one brain
-  controlling multiple wallets. Genuinely independent reasoning loops.
-- **Mock governance with 5-min voting periods for demo.** Real DAO interface
-  compatibility for production credibility.
-- **Working demo > feature completeness.** If Phase 2 isn't done,
-  ship Phase 1 + Phase 3 and still win Venice + Open Track + Protocol Labs.
-- **Self-funding narrative:** Lido stETH yield pays for Venice API calls.
-  Even if just a display metric, include it in the demo.
-- **Fetch ethskills as needed:** `https://ethskills.com/<skill>/SKILL.md`
-  Available skills: ship, why, protocol, gas, wallets, l2s, standards, tools,
-  building-blocks, orchestration, addresses, concepts, security, audit,
-  testing, indexing, frontend-ux, frontend-playbook, qa.
-
-## Deployed Contracts — Multi-DAO (Base Sepolia, chain 84532)
-- **Uniswap Governor:** `0x900Ea5B3D69eD4f12Fe8cDCF5BaCd0671742D380`
-- **Lido Governor:** `0xbCB2d76e5838313B422094909e833bA3f13714B5`
-- **ENS Governor:** `0xa127EB3882CA0E8C0F9730cb2D9781F5d02EeAD6`
-- **ParentTreasury:** `0x51Ec9a651A56B81e2309fE4615fE26B99a93902F`
-- **SpawnFactory:** `0xb34b5fD9236A32D0826d9d4FEdb8b7bD4DAC0053`
-- **ChildGovernor (impl):** `0xdAC96F133cb8a062AEEAAe136Cee25FF3BbDfddC`
-- **TimeLock:** `0xB16d8446Fa4eFB48c17cd2bFe35B97a768459f5E`
-- **Deployer:** `0x15896e731c51ecB7BdB1447600DF126ea1d6969A`
-
-## Deployed Contracts (Celo Sepolia, chain 11142220)
-- **MockGovernor:** `0x8aF194474ebB0425b863036177FEA2AF37e1E41C`
-- **ParentTreasury:** `0x4Fb6c048377dcdE74c44aC672166A9427ed10909`
-- **ChildGovernor (impl):** `0xcD2ED80d015883fe861c2055f63f1879B0853D96`
-- **SpawnFactory:** `0x4687E4C2B7087382d634D61fa973b134a5d9617D`
-- **TimeLock:** `0x8a3c83F32FAdDd4DA7d8d190ce740dd441D871B5`
-- **RPC:** `https://celo-sepolia.drpc.org`
-
-## Dashboard Agent Instructions
-A separate Claude Code agent should build the dashboard in `dashboard/`.
-See the "Dashboard Agent Prompt" section below for the full prompt.
-The dashboard agent should NOT modify files in `contracts/` or `agent/src/`.
-
-## Dashboard Agent Prompt
-Give this prompt to a second Claude Code agent running in the same repo:
-
-```
-You are building the real-time dashboard for Spawn Protocol, a DAO governance
-agent swarm. Work ONLY in the dashboard/ directory. Do not modify contracts/ or agent/.
-
-### What to build
-A Next.js 14 app (App Router) that visualizes the agent swarm in real time by
-polling onchain events from Base Sepolia.
-
-### Deployed contracts (Base Sepolia, chain 84532)
-- MockGovernor: 0xabCBCa03e9E604Bb5182871aFc6EAeE8Da54Ef6b
-- ParentTreasury: 0xf8C1B9f2093AbA98758Ab9fdDECA4a51679eA51F
-- ChildGovernor (impl): 0xce1847216305F4e8029af2587b7EccbdfF6D2527
-- SpawnFactory: 0x7890836c5C8F1E0fa73045791C42C746A3826163
-- TimeLock: 0x05952Db4Eece0EE3498fbcf25E8e29133AcAdE09
-- RPC: https://sepolia.base.org
-
-### Pages / Views
-1. **Swarm Overview** (/) — grid of active child agents as cards. Each shows:
-   - ENS label, contract address, assigned DAO
-   - Alignment score (color-coded: green >70, yellow 40-70, red <40)
-   - Vote count, last vote timestamp
-   - Status: active (green pulse), voting (blue), terminated (red)
-2. **Agent Detail** (/agent/[id]) — single child's full history:
-   - All votes with proposal descriptions, decision, reasoning (if revealed)
-   - Alignment score over time (line chart)
-   - Onchain tx links to Base Sepolia explorer
-3. **Proposals** (/proposals) — all MockGovernor proposals with:
-   - Status (Active/Succeeded/Defeated/Executed)
-   - Vote breakdown (for/against/abstain)
-   - Which children voted and how
-4. **Timeline** (/timeline) — chronological feed of all events:
-   - ChildSpawned, VoteCast, AlignmentUpdated, ChildTerminated, RationaleRevealed
-   - Color-coded: spawn=green, vote=blue, terminate=red
-5. **Owner Panel** (/settings) — display governance values from ParentTreasury
-   - Show owner's stated values
-   - "Spawn New Child" and "Set Values" controls (write txs via wallet connect)
-
-### Tech
-- Next.js 14 with App Router, TypeScript, Tailwind CSS
-- viem for onchain reads (publicClient, no wallet needed for reads)
-- Poll events every 10 seconds using useEffect + setInterval
-- Copy ABIs from agent/src/abis.ts (or import directly)
-- Use shadcn/ui components for cards, tables, badges
-- Dark theme (space/cyberpunk aesthetic — this is an agent SWARM)
-- Responsive but desktop-first (demo will be on laptop)
-
-### Visual Style
-- Dark background (#0a0a0f), neon accent colors
-- Green pulse animation for active agents
-- Blue glow for voting events
-- Red flash for terminations
-- Monospace font for addresses and tx hashes
-- Animated particle/connection lines between parent and children (optional, time permitting)
-
-### Key Implementation Notes
-- The SpawnFactory emits ChildSpawned events — use getLogs to fetch all children
-- Each child's address comes from ChildSpawned events, then read ChildGovernor ABI on those addresses
-- For alignment scores, read alignmentScore() on each child contract
-- For proposals, iterate proposalCount on MockGovernor and getProposal for each
-- The ParentTreasury has getGovernanceValues() for the owner's stated values
-- Use viem's watchContractEvent or poll with getLogs for real-time updates
-
-### Init commands
-cd /Users/odinson/Developer/synthesis
-npx create-next-app@latest dashboard --typescript --tailwind --eslint --app --src-dir --import-alias "@/*" --use-npm
-cd dashboard && npm install viem
-npx shadcn@latest init -d
-
-### DO NOT
-- Do not install wagmi or connectkit (overkill for read-only dashboard, add wallet connect later if time)
-- Do not use hardcoded mock data — everything reads from onchain
-- Do not add authentication
-- Do not create a backend API — read directly from chain
-```
-
-## Current Status
-- [x] Project scaffolded
-- [x] MockGovernor written + tested
-- [x] SpawnFactory written + tested
-- [x] ChildGovernor written + tested
-- [x] ParentTreasury written + tested
-- [x] Integration test passing (25/25, includes cap enforcement tests)
-- [x] Deployed to Base Sepolia
-- [ ] Deployed to Celo Sepolia (RPC down globally, retrying)
-- [x] Agent runtime scaffolded
-- [x] Venice API integrated (credits active, llama-3.3-70b confirmed working)
-- [x] Parent agent loop working (with ENS, ERC-8004, delegation, yield monitoring)
-- [x] Child agent loop working (with Lit Protocol encrypt/decrypt + fallback)
-- [x] Children vote autonomously (Venice reasoning → onchain vote) ✓ VERIFIED LIVE
-- [x] Parent evaluates alignment (Venice scoring → onchain update) ✓ VERIFIED LIVE
-- [x] Parent kills/respawns misaligned children (with post-spawn integrations)
-- [x] Lit Protocol encryption wired into child loop (encrypt on vote, decrypt on reveal)
-- [x] MetaMask delegations wired into parent spawn flow
-- [x] ERC-8004 identities wired into parent spawn + alignment flow ✓ VERIFIED LIVE
-- [x] ENS subdomains wired into parent spawn flow (local fallback on Base Sepolia) ✓ VERIFIED LIVE
-- [x] Lido stETH integration (yield tracking + self-sustainability metrics)
-- [x] End-to-end demo tested on Base Sepolia ✓ ALL VOTES ONCHAIN
-- [x] Deployed to Celo Sepolia (chain 11142220)
-- [ ] Dashboard live (separate agent building)
-- [ ] Demo recorded
-- [ ] Submitted
+- **Encrypted rationale via Lit is a core feature.** Time-locked decryption prevents front-running.
+- **Each child agent runs as its own OS process.** Genuinely independent reasoning loops via `fork()`.
+- **Mock governance with 5-min voting periods for demo.** Real DAO interface compatibility for production.
+- **Self-funding treasury.** Lido stETH yield covers Venice API costs.

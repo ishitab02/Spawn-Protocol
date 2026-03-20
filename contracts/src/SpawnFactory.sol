@@ -56,6 +56,27 @@ contract SpawnFactory {
         uint256 budget,
         uint256 maxGasPerVote
     ) external onlyParent returns (uint256 childId) {
+        return _spawnChild(ensLabel, governanceTarget, budget, maxGasPerVote, address(0));
+    }
+
+    /// @notice Spawn with operator set atomically — no separate setOperator call needed
+    function spawnChildWithOperator(
+        string calldata ensLabel,
+        address governanceTarget,
+        uint256 budget,
+        uint256 maxGasPerVote,
+        address operatorAddr
+    ) external onlyParent returns (uint256 childId) {
+        return _spawnChild(ensLabel, governanceTarget, budget, maxGasPerVote, operatorAddr);
+    }
+
+    function _spawnChild(
+        string calldata ensLabel,
+        address governanceTarget,
+        uint256 budget,
+        uint256 maxGasPerVote,
+        address operatorAddr
+    ) internal returns (uint256 childId) {
         // Enforce treasury caps
         uint256 maxKids = ITreasuryCaps(treasury).maxChildren();
         uint256 maxBudget = ITreasuryCaps(treasury).maxBudgetPerChild();
@@ -71,6 +92,11 @@ contract SpawnFactory {
             governanceTarget,
             maxGasPerVote
         );
+
+        // Set operator atomically if provided
+        if (operatorAddr != address(0)) {
+            ChildGovernor(payable(clone)).setOperator(operatorAddr);
+        }
 
         children[childId] = ChildInfo({
             id: childId,

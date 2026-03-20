@@ -6,32 +6,31 @@ import {
 } from "./abis";
 
 // Latest deployment — Base Sepolia (chain 84532)
-// With operator auth, unique child wallets, SpawnENSRegistry, StETHTreasury
+// maxChildren=30, spawnChildWithOperator, 3 perspectives per DAO
 export const CONTRACTS = {
   MockGovernor: {
-    address: "0x55d18aAFaf7Ef1838d3df5DCb4B0A899F6fB6B0e" as const,
+    address: "0xd91e80324f0fa9fdefb64a46e68bcbe79a8b2ca9" as const,
     abi: MockGovernorABI,
   },
   ParentTreasury: {
-    address: "0xF470384d5d08720785460567f2F785f62b6d016c" as const,
+    address: "0x9428b93993f06d3c5d647141d39e5ba54fb97a7b" as const,
     abi: ParentTreasuryABI,
   },
   SpawnFactory: {
-    address: "0xbee1A2c4950117a276FBBa17eebc33b324125760" as const,
+    address: "0xfeb8d54149b1a303ab88135834220b85091d93a1" as const,
     abi: SpawnFactoryABI,
   },
   ChildGovernorImpl: {
-    address: "0xEE0ed30B41B57Eb715EFe586723bfde551EFa407" as const,
+    address: "0x9cc050508b7d7deea1d2cd81cea484eb3550fcf6" as const,
     abi: ChildGovernorABI,
   },
 } as const;
 
-// All 3 DAO governors
 export const GOVERNORS = [
   {
     name: "Uniswap DAO",
     slug: "uniswap",
-    address: "0x55d18aAFaf7Ef1838d3df5DCb4B0A899F6fB6B0e" as const,
+    address: "0xd91e80324f0fa9fdefb64a46e68bcbe79a8b2ca9" as const,
     abi: MockGovernorABI,
     color: "text-pink-400",
     borderColor: "border-pink-400/30",
@@ -40,7 +39,7 @@ export const GOVERNORS = [
   {
     name: "Lido DAO",
     slug: "lido",
-    address: "0x34384d90A14633309100BA52f73Aec0e0D5C0a8C" as const,
+    address: "0x40bae6f7d75c2600d724b4cc194e20e66f6386ac" as const,
     abi: MockGovernorABI,
     color: "text-blue-400",
     borderColor: "border-blue-400/30",
@@ -49,7 +48,7 @@ export const GOVERNORS = [
   {
     name: "ENS DAO",
     slug: "ens",
-    address: "0xFB98e4688e31E56e761d2837248CD1C1181D3BE7" as const,
+    address: "0xb4e46e107fbd9b616b145adb91a5ffe0f5a2c42c" as const,
     abi: MockGovernorABI,
     color: "text-purple-400",
     borderColor: "border-purple-400/30",
@@ -57,18 +56,18 @@ export const GOVERNORS = [
   },
 ] as const;
 
-// Celo Alfajores (chain 44787) contracts
+// Celo Sepolia — latest deployment with operator auth (run-1773941913639)
 export const CELO_CONTRACTS = {
   ParentTreasury: {
-    address: "0xa661fa0Ec3DDfcE13eC4b67633E39fbc0068b52E" as const,
+    address: "0x35ab52d20736886ebe3730f7fc2d6fa52c7159d4" as const,
     abi: ParentTreasuryABI,
   },
   SpawnFactory: {
-    address: "0x6286FEC559c37C4C1ea4e756D368Db0b9226716d" as const,
+    address: "0x8d3c3dbbc7a6f87feaf24282956ca8a014fe889a" as const,
     abi: SpawnFactoryABI,
   },
   ChildGovernorImpl: {
-    address: "0x2ebcaf300cd4d519b394359887d30bfbe43c23ca" as const,
+    address: "0xf0e256c1e4ca7f7c89cf369f5d1370f7cbbef076" as const,
     abi: ChildGovernorABI,
   },
 } as const;
@@ -77,7 +76,7 @@ export const CELO_GOVERNORS = [
   {
     name: "Uniswap DAO",
     slug: "uniswap",
-    address: "0x739F3AE3be1EC6261caF97cC92938edCd3D36D61" as const,
+    address: "0x1e7d5f7c461d8f4678699669ace80e5e317b466f" as const,
     abi: MockGovernorABI,
     color: "text-pink-400",
     borderColor: "border-pink-400/30",
@@ -86,7 +85,7 @@ export const CELO_GOVERNORS = [
   {
     name: "Lido DAO",
     slug: "lido",
-    address: "0xF81dEf4254ee1EC95dA18954044defB34C30fef8" as const,
+    address: "0x349618bed66c73faca427da69a26cb8f7f91b9bb" as const,
     abi: MockGovernorABI,
     color: "text-blue-400",
     borderColor: "border-blue-400/30",
@@ -95,7 +94,7 @@ export const CELO_GOVERNORS = [
   {
     name: "ENS DAO",
     slug: "ens",
-    address: "0x5687a0414Fdc510Dde3DB7b33C3b557619FBFf01" as const,
+    address: "0x1f54fd588a80bbde83d91003c043f21705814885" as const,
     abi: MockGovernorABI,
     color: "text-purple-400",
     borderColor: "border-purple-400/30",
@@ -116,6 +115,28 @@ export function explorerAddress(address: string): string {
 export function formatAddress(address: string): string {
   if (!address || address.length < 10) return address;
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+/** Convert an ensLabel like "uniswap-dao-defi" to "uniswap-dao-defi.spawn.eth" */
+export function ensName(ensLabel: string | undefined): string | null {
+  if (!ensLabel || ensLabel === "") return null;
+  return `${ensLabel}.spawn.eth`;
+}
+
+/** Resolve a governance contract address to a human-readable DAO name */
+const GOVERNOR_NAMES: Record<string, string> = {
+  // Base Sepolia
+  "0xd91e80324f0fa9fdefb64a46e68bcbe79a8b2ca9": "Uniswap DAO",
+  "0x40bae6f7d75c2600d724b4cc194e20e66f6386ac": "Lido DAO",
+  "0xb4e46e107fbd9b616b145adb91a5ffe0f5a2c42c": "ENS DAO",
+  // Celo Sepolia
+  "0x1e7d5f7c461d8f4678699669ace80e5e317b466f": "Uniswap DAO",
+  "0x349618bed66c73faca427da69a26cb8f7f91b9bb": "Lido DAO",
+  "0x1f54fd588a80bbde83d91003c043f21705814885": "ENS DAO",
+};
+
+export function governorName(address: string): string | null {
+  return GOVERNOR_NAMES[address.toLowerCase()] ?? null;
 }
 
 export function formatTimestamp(ts: bigint | number): string {

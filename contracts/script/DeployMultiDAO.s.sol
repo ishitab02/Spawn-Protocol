@@ -21,7 +21,7 @@ contract DeployMultiDAO is Script {
         MockGovernor ensGov = new MockGovernor(300);
 
         // Core infrastructure
-        ParentTreasury treasury = new ParentTreasury(10, 1 ether);
+        ParentTreasury treasury = new ParentTreasury(30, 1 ether); // 30 max for multi-perspective swarm
         ChildGovernor childImpl = new ChildGovernor();
         SpawnFactory factory = new SpawnFactory(address(treasury), address(childImpl));
         TimeLock timeLock = new TimeLock();

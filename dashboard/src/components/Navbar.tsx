@@ -66,7 +66,7 @@ export function Navbar() {
         <div className="flex flex-col gap-1">
           {([
             { id: "base", label: "Base Sepolia", color: "text-blue-400" },
-            { id: "celo", label: "Celo Alfajores", color: "text-green-400" },
+            { id: "celo", label: "Celo Sepolia", color: "text-green-400" },
           ] as const).map((chain) => (
             <button
               key={chain.id}
@@ -89,13 +89,13 @@ export function Navbar() {
         <div className="flex items-center gap-2 mb-2">
           <div className="w-2 h-2 rounded-full bg-green-400 animate-ping" style={{ animationDuration: "2s" }} />
           <span className="font-mono text-xs text-gray-500">
-            {chainId === "base" ? "Base Sepolia" : "Celo Alfajores"}
+            {chainId === "base" ? "Base Sepolia" : "Celo Sepolia"}
           </span>
         </div>
         <a
           href={chainId === "base"
-            ? "https://sepolia.basescan.org/address/0xbee1A2c4950117a276FBBa17eebc33b324125760"
-            : "https://celo-alfajores.blockscout.com/address/0x6286FEC559c37C4C1ea4e756D368Db0b9226716d"}
+            ? "https://sepolia.basescan.org/address/0xfeb8d54149b1a303ab88135834220b85091d93a1"
+            : "https://celo-sepolia.celoscan.io/address/0xc06e6615e2bbbf795ae17763719dcb9b82cd781c"}
           target="_blank"
           rel="noopener noreferrer"
           className="font-mono text-xs text-gray-700 hover:text-gray-400 transition-colors"

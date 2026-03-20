@@ -6,10 +6,22 @@
  * has its own wallet for signing transactions.
  */
 
-import { keccak256, encodePacked, type Address, type Hex } from "viem";
+import { keccak256, encodePacked, defineChain, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { createWalletClient, createPublicClient, http } from "viem";
 import { baseSepolia } from "viem/chains";
+
+const celoSepoliaChain = defineChain({
+  id: 11142220,
+  name: "Celo Sepolia",
+  nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
+  rpcUrls: { default: { http: [process.env.CELO_SEPOLIA_RPC_URL || "https://celo-sepolia.drpc.org"] } },
+});
+
+function resolveChain(chainName?: string) {
+  if (chainName === "celo-sepolia") return { chain: celoSepoliaChain, rpc: process.env.CELO_SEPOLIA_RPC_URL || "https://celo-sepolia.drpc.org" };
+  return { chain: baseSepolia, rpc: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org" };
+}
 
 interface DerivedWallet {
   address: Address;
@@ -74,15 +86,15 @@ export function createChildWalletClient(
  */
 export function createWalletClientFromKey(
   privateKey: Hex,
-  chain: typeof baseSepolia = baseSepolia,
-  rpcUrl?: string
+  chainName?: string
 ) {
   const account = privateKeyToAccount(privateKey);
+  const { chain, rpc } = resolveChain(chainName);
 
   return createWalletClient({
     account,
     chain,
-    transport: http(rpcUrl || process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org"),
+    transport: http(rpc),
   });
 }
 

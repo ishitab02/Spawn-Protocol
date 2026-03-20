@@ -65,30 +65,40 @@
   "contracts": {
     "base-sepolia": {
       "chainId": 84532,
-      "UniswapGovernor": "0x900Ea5B3D69eD4f12Fe8cDCF5BaCd0671742D380",
-      "LidoGovernor": "0xbCB2d76e5838313B422094909e833bA3f13714B5",
-      "ENSGovernor": "0xa127EB3882CA0E8C0F9730cb2D9781F5d02EeAD6",
-      "ParentTreasury": "0x51Ec9a651A56B81e2309fE4615fE26B99a93902F",
-      "ChildGovernor": "0xdAC96F133cb8a062AEEAAe136Cee25FF3BbDfddC",
-      "SpawnFactory": "0xb34b5fD9236A32D0826d9d4FEdb8b7bD4DAC0053",
-      "TimeLock": "0xB16d8446Fa4eFB48c17cd2bFe35B97a768459f5E"
+      "UniswapGovernor": "0xD91E80324F0fa9FDEFb64A46e68bCBe79A8B2Ca9",
+      "LidoGovernor": "0x40BaE6F7d75C2600D724b4CC194e20E66F6386aC",
+      "ENSGovernor": "0xb4e46E107fBD9B616b145aDB91A5FFe0f5a2c42C",
+      "ParentTreasury": "0x9428B93993F06d3c5d647141d39e5ba54fb97a7b",
+      "ChildGovernor": "0x9Cc050508B7d7DEEa1D2cD81CEA484EB3550Fcf6",
+      "SpawnFactory": "0xfEb8D54149b1a303Ab88135834220b85091D93A1",
+      "SpawnENSRegistry": "0x29170A43352D65329c462e6cDacc1c002419331D",
+      "StETHTreasury": "0x7434531B76aa98bDC5d4b03306dE29fadc88A06c",
+      "TimeLock": "0xb91f936aCd6c9fcdd71C64b57e4e92bb6db7DD23"
     },
     "celo-sepolia": {
       "chainId": 11142220,
-      "UniswapGovernor": "0x739F3AE3be1EC6261caF97cC92938edCd3D36D61",
-      "LidoGovernor": "0xF81dEf4254ee1EC95dA18954044defB34C30fef8",
-      "ENSGovernor": "0x5687a0414Fdc510Dde3DB7b33C3b557619FBFf01",
-      "ParentTreasury": "0xa661fa0Ec3DDfcE13eC4b67633E39fbc0068b52E",
-      "ChildGovernor": "0x2EBCAf300Cd4d519b394359887D30BfBe43C23ca",
-      "SpawnFactory": "0x6286FEC559c37C4C1ea4e756D368Db0b9226716d",
-      "TimeLock": "0xd34FC1ee378F342EFb92C0D334362B9E577b489f"
+      "UniswapGovernor": "0xB51Ad04efBb05607214d1B19b3F9686156f1A025",
+      "LidoGovernor": "0x3B4D24aD2203641CE895ad9A4c9254F4f7291822",
+      "ENSGovernor": "0xc01FDE9e1CC1d7319fA03861304eb626cAF9A5be",
+      "ParentTreasury": "0x5Bb4b18CDFF5Dbac874235d7067B414F0709C444",
+      "ChildGovernor": "0xff392223115Aef74e67b7aabF62659B86f486ce6",
+      "SpawnFactory": "0xC06E6615E2bBBf795ae17763719dCB9b82cd781C",
+      "TimeLock": "0x68686865af7287137818C12E5680AA04A8Fd525a"
     }
   },
   "reasoning": {
     "provider": "venice",
     "model": "llama-3.3-70b",
     "baseURL": "https://api.venice.ai/api/v1",
-    "dataRetention": false
+    "dataRetention": false,
+    "callTypes": [
+      "summarizeProposal — extract key points before voting",
+      "assessProposalRisk — evaluate treasury/centralization/alignment risk",
+      "reasonAboutProposal — decide FOR/AGAINST/ABSTAIN with reasoning",
+      "evaluateAlignment — score child's voting record 0-100",
+      "generateSwarmReport — narrative status report per cycle",
+      "generateTerminationReport — post-mortem on terminated agents"
+    ]
   },
   "encryption": {
     "provider": "lit-protocol",
@@ -103,15 +113,27 @@
   },
   "identity": {
     "standard": "ERC-8004",
+    "registry": "0x8004A818BFB912233c491871b3d84c89A494BD9e",
+    "agentIds": [2220, 2221, 2222, 2223, 2246],
     "ens": {
       "parentDomain": "spawn.eth",
-      "childPattern": "{dao-name}.spawn.eth"
+      "childPattern": "{dao-name}-{perspective}.spawn.eth",
+      "registry": "0x29170A43352D65329c462e6cDacc1c002419331D",
+      "registeredSubdomains": 10,
+      "features": ["register", "deregister", "resolve", "reverseResolve", "textRecords"]
     }
+  },
+  "treasury": {
+    "stETHTreasury": "0x7434531B76aa98bDC5d4b03306dE29fadc88A06c",
+    "principalLocked": true,
+    "yieldSpendable": true,
+    "simulatedAPY": "3.5%",
+    "yieldWithdrawalTx": "0xcc01d71508c53abe607bd96a0b6035c6a470eebd082200f3a775a7908db60d91"
   },
   "guardrails": {
     "alignmentThreshold": 40,
     "misalignmentStrikesToKill": 2,
-    "maxChildren": 10,
+    "maxChildren": 30,
     "maxBudgetPerChild": "1 ETH",
     "emergencyPause": true,
     "delegationScope": "castVote only"

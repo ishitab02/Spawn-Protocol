@@ -245,6 +245,19 @@ export const SpawnFactoryABI = [
   },
   {
     type: "function",
+    name: "spawnChildWithOperator",
+    inputs: [
+      { name: "ensLabel", type: "string" },
+      { name: "governanceTarget", type: "address" },
+      { name: "budget", type: "uint256" },
+      { name: "maxGasPerVote", type: "uint256" },
+      { name: "operatorAddr", type: "address" },
+    ],
+    outputs: [{ name: "childId", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
     name: "recallChild",
     inputs: [{ name: "childId", type: "uint256" }],
     outputs: [],

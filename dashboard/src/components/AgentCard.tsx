@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { formatAddress, explorerAddress, formatTimestamp } from "@/lib/contracts";
+import { formatAddress, explorerAddress, formatTimestamp, ensName, governorName } from "@/lib/contracts";
 import { AlignmentBadge } from "./AlignmentBadge";
 import type { ChildInfo } from "@/hooks/useSwarmData";
 
@@ -38,10 +38,8 @@ export function AgentCard({ child, justVoted = false }: AgentCardProps) {
       : "bg-red-400"
     : "bg-gray-500";
 
-  const ensDisplay =
-    child.ensLabel && child.ensLabel !== ""
-      ? child.ensLabel
-      : formatAddress(child.childAddr);
+  const ensDisplay = ensName(child.ensLabel) ?? formatAddress(child.childAddr);
+  const daoName = governorName(child.governance);
 
   return (
     <Link href={`/agent/${child.id.toString()}`}>
@@ -64,9 +62,16 @@ export function AgentCard({ child, justVoted = false }: AgentCardProps) {
 
         {/* ENS / Address */}
         <div className="mb-2">
-          <p className="font-mono text-sm text-green-400 font-semibold truncate">
-            {ensDisplay}
-          </p>
+          <div className="flex items-center gap-1.5">
+            <p className="font-mono text-sm text-green-400 font-semibold truncate">
+              {ensDisplay}
+            </p>
+            {ensName(child.ensLabel) && (
+              <span className="text-[9px] border border-green-500/30 bg-green-500/10 text-green-400 rounded px-1 py-0.5 font-mono uppercase whitespace-nowrap">
+                ENS
+              </span>
+            )}
+          </div>
           <span
             className="font-mono text-xs text-gray-500 hover:text-gray-300 transition-colors cursor-pointer"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.open(explorerAddress(child.childAddr), "_blank"); }}
@@ -84,7 +89,7 @@ export function AgentCard({ child, justVoted = false }: AgentCardProps) {
             className="font-mono text-xs text-blue-400 hover:text-blue-300 transition-colors cursor-pointer"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.open(explorerAddress(child.governance), "_blank"); }}
           >
-            {formatAddress(child.governance)}
+            {daoName ?? formatAddress(child.governance)}
           </span>
         </div>
 

@@ -3,11 +3,11 @@ import { baseSepolia } from "viem/chains";
 import { defineChain } from "viem";
 
 export const celoSepolia = defineChain({
-  id: 44787,
-  name: "Celo Alfajores",
+  id: 11142220,
+  name: "Celo Sepolia",
   nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
-  rpcUrls: { default: { http: ["https://alfajores-forno.celo-staging.org"] } },
-  blockExplorers: { default: { name: "Celo Explorer", url: "https://celo-alfajores.blockscout.com" } },
+  rpcUrls: { default: { http: ["https://celo-sepolia.drpc.org"] } },
+  blockExplorers: { default: { name: "Celo Explorer", url: "https://celo-sepolia.celoscan.io" } },
 });
 
 export const baseSepoliaClient = createPublicClient({
@@ -17,7 +17,7 @@ export const baseSepoliaClient = createPublicClient({
 
 export const celoSepoliaClient = createPublicClient({
   chain: celoSepolia,
-  transport: http("https://alfajores-forno.celo-staging.org"),
+  transport: http("https://celo-sepolia.drpc.org"),
 });
 
 // Default export kept for backward compat — hooks override via context

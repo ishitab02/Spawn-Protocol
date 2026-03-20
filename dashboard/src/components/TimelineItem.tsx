@@ -1,6 +1,6 @@
 "use client";
 
-import { explorerTx, formatAddress } from "@/lib/contracts";
+import { explorerTx, formatAddress, ensName } from "@/lib/contracts";
 import type { TimelineEvent } from "@/hooks/useTimeline";
 
 const EVENT_STYLES: Record<
@@ -57,11 +57,17 @@ const EVENT_STYLES: Record<
   },
 };
 
+function childDisplay(d: Record<string, unknown>): string {
+  const label = d.ensLabel as string | undefined;
+  if (label) return ensName(label) ?? formatAddress(String(d.childAddr));
+  return formatAddress(String(d.childAddr));
+}
+
 function formatEventData(event: TimelineEvent): string {
   const d = event.data;
   switch (event.type) {
     case "ChildSpawned":
-      return `Child #${d.childId} spawned at ${formatAddress(String(d.childAddr))} — budget: ${d.budget ? (Number(d.budget) / 1e18).toFixed(4) : "?"} ETH`;
+      return `Child #${d.childId} spawned — budget: ${d.budget ? (Number(d.budget) / 1e18).toFixed(4) : "?"} ETH`;
     case "ChildTerminated":
       return `Child #${d.childId} terminated — ${d.fundsReturned ? (Number(d.fundsReturned) / 1e18).toFixed(4) : "?"} ETH returned`;
     case "FundsReallocated":
@@ -72,10 +78,10 @@ function formatEventData(event: TimelineEvent): string {
       return `Deposit of ${d.amount ? (Number(d.amount) / 1e18).toFixed(4) : "?"} ETH from ${formatAddress(String(d.from))}`;
     case "VoteCast": {
       const supportLabels = ["AGAINST", "FOR", "ABSTAIN"];
-      return `${formatAddress(String(d.childAddr))} voted ${supportLabels[Number(d.support)] ?? "?"} on proposal #${d.proposalId}`;
+      return `${childDisplay(d)} voted ${supportLabels[Number(d.support)] ?? "?"} on proposal #${d.proposalId}`;
     }
     case "AlignmentUpdated":
-      return `${formatAddress(String(d.childAddr))} alignment updated to ${d.newScore}/100`;
+      return `${childDisplay(d)} alignment → ${d.newScore}/100`;
     case "RationaleRevealed":
       return `Rationale revealed for proposal #${d.proposalId}`;
     default:

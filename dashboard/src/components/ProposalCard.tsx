@@ -6,6 +6,8 @@ import {
   formatTimestamp,
   formatAddress,
   explorerAddress,
+  ensName,
+  governorName,
 } from "@/lib/contracts";
 import type { Proposal } from "@/hooks/useProposals";
 
@@ -203,7 +205,7 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
                 className={`text-xs font-mono border rounded px-1.5 py-0.5 ${supportColor(v.support)} border-gray-700 bg-gray-900`}
                 title={`${v.childAddr}`}
               >
-                {v.childLabel || formatAddress(v.childAddr)}: {supportLabel(v.support)}
+                {ensName(v.childLabel) ?? formatAddress(v.childAddr)}: {supportLabel(v.support)}
               </span>
             ))}
           </div>
@@ -221,7 +223,7 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
             rel="noopener noreferrer"
             className="text-gray-600 hover:text-gray-400 transition-colors"
           >
-            Governor: {formatAddress(proposal.governorAddress)} ↗
+            Governor: {governorName(proposal.governorAddress) ?? formatAddress(proposal.governorAddress)} ↗
           </a>
         </span>
       </div>

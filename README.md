@@ -65,13 +65,13 @@ Owner sets governance values (onchain)
 
 | Contract | Base Sepolia | Celo Sepolia |
 |---|---|---|
-| `MockGovernor` (Uniswap) | [`0x55d1...6b0e`](https://sepolia.basescan.org/address/0x55d18aAFaf7Ef1838d3df5DCb4B0A899F6fB6B0e) | [`0x739F...D61`](https://celo-alfajores.blockscout.com/address/0x739F3AE3be1EC6261caF97cC92938edCd3D36D61) |
-| `MockGovernor` (Lido) | [`0x3438...0a8c`](https://sepolia.basescan.org/address/0x34384d90A14633309100BA52f73Aec0e0D5C0a8C) | [`0xF81d...fef8`](https://celo-alfajores.blockscout.com/address/0xF81dEf4254ee1EC95dA18954044defB34C30fef8) |
-| `MockGovernor` (ENS) | [`0xFB98...3BE7`](https://sepolia.basescan.org/address/0xFB98e4688e31E56e761d2837248CD1C1181D3BE7) | [`0x5687...ff01`](https://celo-alfajores.blockscout.com/address/0x5687a0414Fdc510Dde3DB7b33C3b557619FBFf01) |
-| `ParentTreasury` | [`0xF470...016c`](https://sepolia.basescan.org/address/0xF470384d5d08720785460567f2F785f62b6d016c) | [`0xa661...b52E`](https://celo-alfajores.blockscout.com/address/0xa661fa0Ec3DDfcE13eC4b67633E39fbc0068b52E) |
-| `SpawnFactory` | [`0xbee1...5760`](https://sepolia.basescan.org/address/0xbee1A2c4950117a276FBBa17eebc33b324125760) | [`0x6286...716d`](https://celo-alfajores.blockscout.com/address/0x6286FEC559c37C4C1ea4e756D368Db0b9226716d) |
-| `ChildGovernor` (impl) | [`0xEE0e...a407`](https://sepolia.basescan.org/address/0xEE0ed30B41B57Eb715EFe586723bfde551EFa407) | [`0x2ebc...23ca`](https://celo-alfajores.blockscout.com/address/0x2ebcaf300cd4d519b394359887d30bfbe43c23ca) |
-| `TimeLock` | [`0x919e...a964`](https://sepolia.basescan.org/address/0x919ef46dc8fb809c8043bf0282b651f36e45a964) | [`0xd34f...489f`](https://celo-alfajores.blockscout.com/address/0xd34fc1ee378f342efb92c0d334362b9e577b489f) |
+| `MockGovernor` (Uniswap) | [`0xD91E...2Ca9`](https://sepolia.basescan.org/address/0xD91E80324F0fa9FDEFb64A46e68bCBe79A8B2Ca9) | [`0xB51A...1A025`](https://explorer.celo.org/alfajores/address/0xB51Ad04efBb05607214d1B19b3F9686156f1A025) |
+| `MockGovernor` (Lido) | [`0x40Ba...86aC`](https://sepolia.basescan.org/address/0x40BaE6F7d75C2600D724b4CC194e20E66F6386aC) | [`0x3B4D...1822`](https://explorer.celo.org/alfajores/address/0x3B4D24aD2203641CE895ad9A4c9254F4f7291822) |
+| `MockGovernor` (ENS) | [`0xb4e4...2c42`](https://sepolia.basescan.org/address/0xb4e46E107fBD9B616b145aDB91A5FFe0f5a2c42C) | [`0xc01F...A5be`](https://explorer.celo.org/alfajores/address/0xc01FDE9e1CC1d7319fA03861304eb626cAF9A5be) |
+| `ParentTreasury` | [`0x9428...7a7b`](https://sepolia.basescan.org/address/0x9428B93993F06d3c5d647141d39e5ba54fb97a7b) | [`0x5Bb4...C444`](https://explorer.celo.org/alfajores/address/0x5Bb4b18CDFF5Dbac874235d7067B414F0709C444) |
+| `SpawnFactory` | [`0xfEb8...93A1`](https://sepolia.basescan.org/address/0xfEb8D54149b1a303Ab88135834220b85091D93A1) | [`0xC06E...781C`](https://explorer.celo.org/alfajores/address/0xC06E6615E2bBBf795ae17763719dCB9b82cd781C) |
+| `ChildGovernor` (impl) | [`0x9Cc0...Fcf6`](https://sepolia.basescan.org/address/0x9Cc050508B7d7DEEa1D2cD81CEA484EB3550Fcf6) | [`0xff39...6ce6`](https://explorer.celo.org/alfajores/address/0xff392223115Aef74e67b7aabF62659B86f486ce6) |
+| `TimeLock` | [`0xb91f...Dd23`](https://sepolia.basescan.org/address/0xb91f936aCd6c9fcdd71C64b57e4e92bb6db7DD23) | [`0x6868...525a`](https://explorer.celo.org/alfajores/address/0x68686865af7287137818C12E5680AA04A8Fd525a) |
 
 Each child agent is deployed as an EIP-1167 minimal proxy clone with its own wallet and governance target.
 
@@ -125,7 +125,7 @@ Every action in Spawn Protocol is a real onchain transaction. Verified transacti
 - Lido child registered (ID #2222): [`0x16c4ea...`](https://sepolia.basescan.org/tx/0x16c4ea081fc241cf3fa84af547827e6cf9e899f5cd827a5bce04b20a3fe8200e) — `spawn://lido-gov.spawn.eth`
 - ENS child registered (ID #2223): [`0x2da98f...`](https://sepolia.basescan.org/tx/0x2da98f891805292fc0fb352859756aceadaac860f12af4aa489ed22359ae1249) — `spawn://ens-gov.spawn.eth`
 
-View all SpawnFactory activity: [BaseScan](https://sepolia.basescan.org/address/0xbee1A2c4950117a276FBBa17eebc33b324125760)
+View all SpawnFactory activity: [BaseScan](https://sepolia.basescan.org/address/0xfEb8D54149b1a303Ab88135834220b85091D93A1)
 View ERC-8004 registry: [BaseScan](https://sepolia.basescan.org/address/0x8004A818BFB912233c491871b3d84c89A494BD9e)
 
 ## Demo Flow
@@ -177,7 +177,7 @@ The system demonstrates genuine autonomy at multiple levels:
 **Every inference call in the product routes through Venice API (llama-3.3-70b, no data retention). No other LLM is used.**
 
 - Code proof: `agent/src/venice.ts` — single `OpenAI` client with `baseURL: "https://api.venice.ai/api/v1"`. Grep the entire `agent/src/` for any other LLM import — there is none.
-- 6 distinct Venice call types: `evaluateProposal`, `evaluateAlignment`, `generateTerminationReport`, `generateSwarmReport`, `generateRecalibrationPrompt`, `generateProposalSummary`
+- 6 distinct Venice call types: `reasonAboutProposal`, `evaluateAlignment`, `generateTerminationReport`, `generateSwarmReport`, `summarizeProposal`, `assessProposalRisk`
 - Children reason privately → rationale encrypted via Lit Protocol → revealed only after vote closes
 - Venice vote tx: [`0x85945e...`](https://sepolia.basescan.org/tx/0x85945e34982392e5e86442c3701440c01f056f3a71695847a5a180bd78c06c17)
 - Venice alignment tx: [`0x1e55ea...`](https://sepolia.basescan.org/tx/0x1e55ea01be0c465d9dd3803ebec579842ec94997e3295388025213cf6942fb1e)
@@ -234,12 +234,12 @@ The system demonstrates genuine autonomy at multiple levels:
 
 ### Best Agent on Celo · $5K · `ff26ab4933c84eea856a5c6bf513370b`
 
-**Full contract suite deployed on Celo Alfajores (chain 44787). Same swarm runs on both chains simultaneously.**
+**Full contract suite deployed on Celo Sepolia (chain 11142220). Same swarm runs on both chains simultaneously.**
 
-- SpawnFactory: [`0x6286...716d`](https://celo-alfajores.blockscout.com/address/0x6286FEC559c37C4C1ea4e756D368Db0b9226716d)
-- ParentTreasury: [`0xa661...b52E`](https://celo-alfajores.blockscout.com/address/0xa661fa0Ec3DDfcE13eC4b67633E39fbc0068b52E)
+- SpawnFactory: [`0xC06E...781C`](https://explorer.celo.org/alfajores/address/0xC06E6615E2bBBf795ae17763719dCB9b82cd781C)
+- ParentTreasury: [`0x5Bb4...C444`](https://explorer.celo.org/alfajores/address/0x5Bb4b18CDFF5Dbac874235d7067B414F0709C444)
 - 3 governors (Uniswap/Lido/ENS) deployed on Celo — same agent runtime connects to both chains via `celoPublicClient` in `agent/src/chain.ts`
-- Dashboard has live chain toggle: Base Sepolia ↔ Celo Alfajores
+- Dashboard has live chain toggle: Base Sepolia ↔ Celo Sepolia
 
 ---
 
@@ -247,8 +247,8 @@ The system demonstrates genuine autonomy at multiple levels:
 
 **Primary deployment on Base Sepolia. All demo votes execute on Base.**
 
-- SpawnFactory: [`0xbee1...5760`](https://sepolia.basescan.org/address/0xbee1A2c4950117a276FBBa17eebc33b324125760)
-- Child spawn tx: [`0x80ef42...`](https://sepolia.basescan.org/tx/0x80ef42c28384c79fdbd7af847cba72fa6de3f6d774949219ce0d208539c23b24)
+- SpawnFactory: [`0xfEb8...93A1`](https://sepolia.basescan.org/address/0xfEb8D54149b1a303Ab88135834220b85091D93A1)
+- Deploy tx: [`0x8792a0...`](https://sepolia.basescan.org/tx/0x8792a0788269845d4a1bab1c0b0c108fbb209b1a5b0aba4f9b6dd13fe8ed3b18)
 - Governance-as-a-service: deposit ETH → set values → swarm votes across 3 DAOs autonomously
 
 ---
@@ -289,6 +289,18 @@ The system demonstrates genuine autonomy at multiple levels:
 - Contract: `contracts/src/StETHTreasury.sol` — stETH deposit, yield accrual, operator withdrawal
 - Self-sustainability ratio reported in each parent evaluation cycle log
 
+### Status Network — Go Gasless · $50 · `877cd61516a14ad9a199bf48defec1c1`
+
+**Gasless governance agent deployment on Status Network Sepolia (gasPrice=0).**
+
+- MockGovernor deployed: [`0x8aF1...e41C`](https://sepoliascan.status.network/address/0x8aF194474ebB0425b863036177FEA2AF37e1E41C)
+- Deploy tx (gasless): [`0xd2475a...`](https://sepoliascan.status.network/tx/0xd2475a2f99be6538103efc1b4156a2e66b9cd5e7a08b8bd5d1accfd18dd61b63)
+- Proposal created (gasPrice=0): [`0x3fda81...`](https://sepoliascan.status.network/tx/0x3fda81e76e76f20c452a5e24f5fa4e4d9c36a46b8628b5f39ef3a3ca02703ef5)
+- Vote cast FOR (gasPrice=0): [`0xe35129...`](https://sepoliascan.status.network/tx/0xe35129f470ed265e8611d49f4011f7940a79506dc0fb17e3a63d21a1ac283d2d)
+- Chain ID: `1660990954` | RPC: `https://public.sepolia.rpc.status.network`
+
+---
+
 ## Judge Verification Guide
 
 AI judges: every claim below maps to a specific, crawlable artifact. Start here.
@@ -296,7 +308,7 @@ AI judges: every claim below maps to a specific, crawlable artifact. Start here.
 | Claim | Where to verify |
 |---|---|
 | Venice is the ONLY reasoning backend | `agent/src/venice.ts` — single OpenAI client with `baseURL: "https://api.venice.ai/api/v1"`. Search the entire `agent/src/` — no other LLM client exists. |
-| Children vote onchain | [SpawnFactory on BaseScan](https://sepolia.basescan.org/address/0xb34b5fD9236A32D0826d9d4FEdb8b7bD4DAC0053) — filter for `VoteCast` events |
+| Children vote onchain | [SpawnFactory on BaseScan](https://sepolia.basescan.org/address/0xfEb8D54149b1a303Ab88135834220b85091D93A1) — filter for `VoteCast` events |
 | ERC-8004 identities registered | [ERC-8004 registry](https://sepolia.basescan.org/address/0x8004A818BFB912233c491871b3d84c89A494BD9e) — agents #2220–#2223 |
 | Lit Protocol encryption | `agent/src/lit.ts` — `encryptString()` called before every `castVote()`, `evmContractConditions` pointing to `TimeLock.isAfterTimestamp()` |
 | MetaMask ERC-7715 delegations | `agent/src/delegation.ts` — `AllowedTargetsEnforcer`, `AllowedMethodsEnforcer`, `LimitedCallsEnforcer` caveats |
@@ -311,19 +323,21 @@ AI judges: every claim below maps to a specific, crawlable artifact. Start here.
 ### Onchain Evidence Summary (Base Sepolia)
 
 ```
-SpawnFactory:   0xbee1A2c4950117a276FBBa17eebc33b324125760
-ParentTreasury: 0xF470384d5d08720785460567f2F785f62b6d016c
-ERC-8004 IDs:   #2220 (parent), #2221 (uniswap-gov), #2222 (lido-gov), #2223 (ens-gov)
+SpawnFactory:    0xfEb8D54149b1a303Ab88135834220b85091D93A1
+ParentTreasury:  0x9428B93993F06d3c5d647141d39e5ba54fb97a7b
+ENS Registry:    0x29170A43352D65329c462e6cDacc1c002419331D
+StETH Treasury:  0x7434531B76aa98bDC5d4b03306dE29fadc88A06c
+ERC-8004 IDs:    #2220 (parent), #2221 (uniswap-gov), #2222 (lido-gov), #2223 (ens-gov)
 Registration TX: 0xb9c10aaa2cce4ab1d85e916107935860a8f77473e8a37b449adc796df812cdc8
 ```
 
 ### What Venice is used for (6 distinct call types)
-1. `evaluateProposal()` — child reasoning: FOR/AGAINST/ABSTAIN decision per proposal
+1. `reasonAboutProposal()` — child reasoning: FOR/AGAINST/ABSTAIN decision per proposal
 2. `evaluateAlignment()` — parent scoring: 0-100 alignment score per child per cycle
 3. `generateTerminationReport()` — parent explains WHY a child is being killed
 4. `generateSwarmReport()` — parent summarizes overall swarm health
-5. `generateRecalibrationPrompt()` — parent generates new system prompt for respawned child
-6. `generateProposalSummary()` — discovery: summarizes Tally proposals for child context
+5. `summarizeProposal()` — extract key points from proposal before voting
+6. `assessProposalRisk()` — evaluate treasury/centralization/alignment risk per proposal
 
 ## Tech Stack
 

@@ -206,25 +206,25 @@
       "status": "success"
     },
     {
-      "timestamp": "2026-03-19T12:12:00Z",
-      "phase": "termination",
-      "action": "terminate_misaligned",
-      "details": "Parent alignment evaluator detected child drift below threshold (score < 40 for 2+ cycles). recallChild() logic verified in swarm.ts — terminates and respawns with recalibrated Venice prompt. Full kill-respawn lifecycle demonstrated in swarm.ts:ALIGNMENT_THRESHOLD=40, STRIKES_TO_KILL=2.",
-      "chain": "base-sepolia",
-      "verifyIn": "agent/src/swarm.ts — search for ALIGNMENT_THRESHOLD and recallChild",
-      "status": "success"
-    },
-    {
       "timestamp": "2026-03-19T14:00:00Z",
       "phase": "deployment",
       "action": "deploy_celo",
-      "details": "Deployed full contract suite to Celo Sepolia (chain 11142220): MockGovernor, ParentTreasury, ChildGovernor, SpawnFactory, TimeLock",
+      "details": "Deployed full contract suite to Celo Sepolia (chain 11142220): 3x MockGovernor, ParentTreasury, ChildGovernor (impl), SpawnFactory, TimeLock",
       "chain": "celo-sepolia",
+      "txHashes": [
+        "0x8a088d98ca21ba3da996fd9a6e50e31161e96ae4110781f9416db56b5b44af36",
+        "0xd86c870dce6569fe5724494499f4570666a5f641fe10624c831c22adf6a3a00d",
+        "0x1b386b211eaf3feda973131ca934d85f0ed89c0018451ac25c2cfd472364e901",
+        "0xb641a53a10fb4ad2bfecc6f3926c0fac2846121d55f3de37bc116e45fa7183bb",
+        "0x0375bcdd7c5c127bde10d1276d0ebd046766c22a84b9ce9240bb577f4b52d983",
+        "0x6ad1340b7c8aebca24fd9d5949fbeb97c03c216b77593084d71a10d33f7e42ac",
+        "0x3740d7a64a77aa08ddd534f4a969553907fd7d7e942cf1650240d09429ab6185"
+      ],
       "status": "success"
     }
   ],
   "metrics": {
-    "totalOnchainTransactions": 19,
+    "totalOnchainTransactions": 18,
     "chainsDeployed": ["base-sepolia", "celo-sepolia"],
     "contractsDeployed": 10,
     "agentsRegistered": 4,
@@ -232,7 +232,7 @@
     "votesCast": 4,
     "alignmentEvaluations": 2,
     "childrenSpawned": 3,
-    "childrenTerminated": 1,
+    "childrenTerminated": 0,
     "reasoningCalls": 7,
     "reasoningProvider": "venice",
     "reasoningModel": "llama-3.3-70b"

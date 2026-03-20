@@ -4,3 +4,8 @@ out = "out"
 libs = ["lib"]
 remappings = ["@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/"]
 solc_version = "0.8.28"
+
+# Note: Status Network needs evm_version = "paris" (no PUSH0).
+# For Status deploys: forge create --evm-version paris --gas-price 0 --legacy
+[rpc_endpoints]
+status_testnet = "https://public.sepolia.rpc.status.network"

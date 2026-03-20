@@ -11,6 +11,8 @@ import {
   formatTimestamp,
   supportLabel,
   supportColor,
+  ensName,
+  governorName,
 } from "@/lib/contracts";
 
 interface PageProps {
@@ -48,7 +50,8 @@ export default function AgentDetailPage({ params }: PageProps) {
     );
   }
 
-  const ensDisplay = child.ensLabel && child.ensLabel !== "" ? child.ensLabel : formatAddress(child.childAddr);
+  const ensDisplay = ensName(child.ensLabel) ?? formatAddress(child.childAddr);
+  const daoDisplay = governorName(child.governance);
 
   return (
     <div className="p-8">
@@ -66,8 +69,13 @@ export default function AgentDetailPage({ params }: PageProps) {
                 Agent #{id} — {child.active ? "Active" : "Terminated"}
               </span>
             </div>
-            <h1 className="text-xl font-mono font-bold text-green-400 mb-1">
+            <h1 className="text-xl font-mono font-bold text-green-400 mb-1 flex items-center gap-2">
               {ensDisplay}
+              {ensName(child.ensLabel) && (
+                <span className="text-[10px] border border-green-500/30 bg-green-500/10 text-green-400 rounded px-1.5 py-0.5 font-mono uppercase">
+                  ENS
+                </span>
+              )}
             </h1>
             <a
               href={explorerAddress(child.childAddr)}
@@ -90,7 +98,7 @@ export default function AgentDetailPage({ params }: PageProps) {
               rel="noopener noreferrer"
               className="font-mono text-blue-400 hover:text-blue-300 text-xs"
             >
-              {formatAddress(child.governance)} ↗
+              {daoDisplay ?? formatAddress(child.governance)} ↗
             </a>
           </div>
           <div>
