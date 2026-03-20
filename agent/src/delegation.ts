@@ -16,7 +16,7 @@ import { encodeAbiParameters, keccak256, type Address, type Hex } from "viem";
 import { account, baseSepolia } from "./chain.js";
 
 // ChildGovernor castVote selector: castVote(uint256,uint8,bytes)
-const CAST_VOTE_SELECTOR = "0x160cbed7" as Hex;
+const CAST_VOTE_SELECTOR = "0x9d36475b" as Hex; // castVote(uint256,uint8,bytes)
 
 // Get the DeleGator environment for Base Sepolia (includes enforcer addresses)
 const environment = getDeleGatorEnvironment(baseSepolia.id);

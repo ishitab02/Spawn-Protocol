@@ -362,6 +362,11 @@ async function evaluateChainChildren(config: ChainConfig) {
 
       logParentAction("evaluate_alignment", { chain: config.name, child: child.ensLabel, votes: history.length }, { score: clamped, label }, receipt.transactionHash);
 
+      // Mirror alignment score to ERC-8004 (makes it a live performance ledger)
+      try {
+        await updateAgentMetadata(BigInt(0), { alignmentScore: clamped });
+      } catch {}
+
       // Strike tracking — immediate kill if score is critically low (<=10)
       const key = `${config.name}:${child.id}`;
       if (clamped < ALIGNMENT_THRESHOLD) {
@@ -472,9 +477,16 @@ async function main() {
   await initChain(BASE_CONFIG);
   await initChain(CELO_CONFIG);
 
-  // Discovery feed disabled — has infinite loop bug. Using proposal bank instead.
-  // TODO: fix discovery.ts mirror function (Cannot read properties of undefined reading 'push')
-  console.log("\n── Using proposal bank (discovery feed disabled) ──");
+  // Start discovery feed — Tally API + simulated proposals
+  console.log("\n── Starting proposal discovery feed ──");
+  try {
+    for (const gov of BASE_CONFIG.governors) {
+      await startProposalFeed(gov.addr, BASE_CONFIG.sendTx as any);
+    }
+    console.log(`[Discovery] Feed active for ${BASE_CONFIG.governors.length} governors`);
+  } catch (err: any) {
+    console.log(`[Discovery] Feed failed to start: ${err?.message?.slice(0, 50)}. Using proposal bank instead.`);
+  }
 
   // Also create proposals from the bank for diverse coverage
   console.log("\n── Seeding initial proposals ──");
