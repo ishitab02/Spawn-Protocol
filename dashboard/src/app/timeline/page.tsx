@@ -20,9 +20,9 @@ export default function TimelinePage() {
   const paginated = events.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <div className="mb-8">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-mono font-bold text-purple-400 tracking-tight">
               Timeline
@@ -43,7 +43,7 @@ export default function TimelinePage() {
       </div>
 
       {/* Legend */}
-      <div className="flex gap-4 flex-wrap mb-6 text-xs font-mono">
+      <div className="flex gap-x-4 gap-y-2 flex-wrap mb-6 text-xs font-mono">
         <span className="flex items-center gap-1.5 text-green-400">
           <span className="w-2 h-2 rounded-full bg-green-400" />
           Spawned

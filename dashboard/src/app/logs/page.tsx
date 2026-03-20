@@ -118,9 +118,9 @@ export default function LogsPage() {
   useEffect(() => { setPage(1); }, [phase, search]);
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       {/* Header */}
-      <div className="mb-8 flex items-start justify-between">
+      <div className="mb-8 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-mono font-bold text-orange-400 tracking-tight">
             Execution Log
@@ -130,7 +130,7 @@ export default function LogsPage() {
           </p>
         </div>
         {log && (
-          <div className="text-right text-xs font-mono text-gray-600">
+          <div className="sm:text-right text-xs font-mono text-gray-600 shrink-0">
             <div className="text-gray-400">{log.agentName} v{log.version}</div>
             <div className="mt-0.5">{log.executionLogs.length} total entries</div>
           </div>
@@ -156,7 +156,7 @@ export default function LogsPage() {
 
       {/* Secondary metrics */}
       {log && (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
           {[
             { label: "Chains",          value: log.metrics.chainsDeployed.join(", ") },
             { label: "Contracts",       value: log.metrics.contractsDeployed },
@@ -282,7 +282,7 @@ export default function LogsPage() {
                       {icon} {entry.phase}
                     </span>
 
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 overflow-hidden">
                       {/* Action + status + chain */}
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className={`font-mono text-sm font-semibold ${isTermination ? "text-red-300" : "text-gray-200"}`}>
@@ -364,10 +364,13 @@ export default function LogsPage() {
                           Verify: {entry.verifyIn}
                         </p>
                       )}
+                      <p className="sm:hidden text-[10px] text-gray-600 font-mono mt-1.5">
+                        {formatTime(entry.timestamp)}
+                      </p>
                     </div>
 
-                    {/* Timestamp */}
-                    <span className="text-[10px] text-gray-600 font-mono shrink-0 whitespace-nowrap">
+                    {/* Timestamp — hidden on mobile, shown on sm+ */}
+                    <span className="hidden sm:block text-[10px] text-gray-600 font-mono shrink-0 whitespace-nowrap">
                       {formatTime(entry.timestamp)}
                     </span>
                   </div>

@@ -206,7 +206,7 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
               />
             )}
           </div>
-          <div className="flex gap-4 mt-1.5 text-xs font-mono">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs font-mono">
             <span className="text-green-400">
               FOR: {proposal.forVotes.toString()} ({forPct.toFixed(0)}%)
             </span>
@@ -246,10 +246,10 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
       )}
 
       {/* Timestamps + Governor link */}
-      <div className="flex gap-4 text-xs text-gray-600 font-mono items-center">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 font-mono items-center">
         <span>Start: {formatTimestamp(proposal.startTime)}</span>
         <span>End: {formatTimestamp(proposal.endTime)}</span>
-        <span className="ml-auto">
+        <span className="sm:ml-auto">
           <a
             href={explorerAddress(proposal.governorAddress)}
             target="_blank"

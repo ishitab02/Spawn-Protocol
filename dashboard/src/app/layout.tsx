@@ -32,12 +32,12 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body
-        className="min-h-full flex bg-[#0a0a0f] text-[#f0f0f5]"
+        className="min-h-full bg-[#0a0a0f] text-[#f0f0f5]"
         suppressHydrationWarning
       >
         <ChainProvider>
           <Navbar />
-          <main className="flex-1 ml-56 min-h-screen grid-bg">{children}</main>
+          <main className="md:ml-56 pt-14 md:pt-0 min-h-screen grid-bg">{children}</main>
         </ChainProvider>
       </body>
     </html>

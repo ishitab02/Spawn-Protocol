@@ -19,9 +19,9 @@ export default function SwarmPage() {
     : 0;
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-6 md:p-8">
       <div className="mb-8">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 gap-4">
           <div>
             <h1 className="text-2xl font-mono font-bold text-green-400 tracking-tight">
               Agent Swarm
@@ -30,27 +30,27 @@ export default function SwarmPage() {
               Autonomous DAO governance agents — {chainLabel}
             </p>
           </div>
-          <div className="flex gap-6 text-center">
+          <div className="flex gap-4 sm:gap-6 text-center">
             <div>
-              <div className="text-3xl font-mono font-bold text-green-400">
+              <div className="text-2xl sm:text-3xl font-mono font-bold text-green-400">
                 {loading ? "…" : activeCount}
               </div>
               <div className="text-xs text-gray-500 uppercase tracking-wider">Active</div>
             </div>
             <div>
-              <div className="text-3xl font-mono font-bold text-blue-400">
+              <div className="text-2xl sm:text-3xl font-mono font-bold text-blue-400">
                 {loading ? "…" : totalVotes}
               </div>
               <div className="text-xs text-gray-500 uppercase tracking-wider">Votes</div>
             </div>
             <div>
-              <div className={`text-3xl font-mono font-bold ${avgAlignment >= 70 ? "text-green-400" : avgAlignment >= 40 ? "text-yellow-400" : "text-red-400"}`}>
+              <div className={`text-2xl sm:text-3xl font-mono font-bold ${avgAlignment >= 70 ? "text-green-400" : avgAlignment >= 40 ? "text-yellow-400" : "text-red-400"}`}>
                 {loading ? "…" : `${avgAlignment}%`}
               </div>
               <div className="text-xs text-gray-500 uppercase tracking-wider">Alignment</div>
             </div>
             <div>
-              <div className="text-3xl font-mono font-bold text-gray-400">
+              <div className="text-2xl sm:text-3xl font-mono font-bold text-gray-400">
                 {loading ? "…" : totalCount}
               </div>
               <div className="text-xs text-gray-500 uppercase tracking-wider">Total</div>

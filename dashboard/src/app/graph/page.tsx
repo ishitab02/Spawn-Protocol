@@ -41,9 +41,9 @@ export default function GraphPage() {
   });
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-mono font-bold text-green-400 tracking-tight">Agent Graph</h1>
           <p className="text-sm text-gray-500 mt-1">Parent-child swarm topology — live from onchain</p>
@@ -57,7 +57,7 @@ export default function GraphPage() {
       </div>
 
       {/* SVG Canvas */}
-      <div className="border border-gray-800 rounded-xl bg-[#07070f] overflow-hidden relative">
+      <div className="border border-gray-800 rounded-xl bg-[#07070f] overflow-x-auto relative">
         {loading ? (
           <div className="flex items-center justify-center h-64">
             <div className="w-8 h-8 border-2 border-green-400/30 border-t-green-400 rounded-full animate-spin" />
@@ -66,8 +66,9 @@ export default function GraphPage() {
           <svg
             width="100%"
             viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
-            className="w-full"
+            className="w-full min-w-[480px]"
             style={{ maxHeight: 600 }}
+            preserveAspectRatio="xMidYMid meet"
           >
             <defs>
               {/* Glows */}

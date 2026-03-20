@@ -15,7 +15,7 @@ export default function SettingsPage() {
   } = useTreasuryData();
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <div className="mb-8">
         <h1 className="text-2xl font-mono font-bold text-yellow-400 tracking-tight">
           Owner Panel

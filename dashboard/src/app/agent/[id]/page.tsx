@@ -25,7 +25,7 @@ export default function AgentDetailPage({ params }: PageProps) {
 
   if (loading) {
     return (
-      <div className="p-8">
+      <div className="p-4 md:p-8">
         <div className="animate-pulse space-y-4">
           <div className="h-8 bg-gray-800 rounded w-1/3" />
           <div className="h-4 bg-gray-800 rounded w-1/2" />
@@ -37,7 +37,7 @@ export default function AgentDetailPage({ params }: PageProps) {
 
   if (error || !child) {
     return (
-      <div className="p-8">
+      <div className="p-4 md:p-8">
         <Link href="/" className="text-sm text-gray-500 hover:text-gray-300 font-mono mb-6 inline-block">
           ← Back to Swarm
         </Link>
@@ -54,22 +54,22 @@ export default function AgentDetailPage({ params }: PageProps) {
   const daoDisplay = governorName(child.governance);
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <Link href="/" className="text-sm text-gray-500 hover:text-gray-300 font-mono mb-6 inline-block">
         ← Back to Swarm
       </Link>
 
       {/* Agent header */}
-      <div className="border border-gray-800 rounded-lg p-6 bg-[#0d0d14] mb-6">
-        <div className="flex items-start justify-between mb-4">
-          <div>
+      <div className="border border-gray-800 rounded-lg p-4 md:p-6 bg-[#0d0d14] mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4">
+          <div className="min-w-0">
             <div className="flex items-center gap-3 mb-1">
-              <div className={`w-2.5 h-2.5 rounded-full ${child.active ? "bg-green-400 animate-ping" : "bg-gray-600"}`} style={{ animationDuration: "2s" }} />
+              <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${child.active ? "bg-green-400 animate-ping" : "bg-gray-600"}`} style={{ animationDuration: "2s" }} />
               <span className="text-xs text-gray-500 uppercase tracking-wider font-mono">
                 Agent #{id} — {child.active ? "Active" : "Terminated"}
               </span>
             </div>
-            <h1 className="text-xl font-mono font-bold text-green-400 mb-1 flex items-center gap-2">
+            <h1 className="text-lg md:text-xl font-mono font-bold text-green-400 mb-1 flex items-center gap-2 flex-wrap">
               {ensDisplay}
               {ensName(child.ensLabel) && (
                 <span className="text-[10px] border border-green-500/30 bg-green-500/10 text-green-400 rounded px-1.5 py-0.5 font-mono uppercase">
@@ -81,7 +81,7 @@ export default function AgentDetailPage({ params }: PageProps) {
               href={explorerAddress(child.childAddr)}
               target="_blank"
               rel="noopener noreferrer"
-              className="font-mono text-sm text-gray-500 hover:text-gray-300"
+              className="font-mono text-xs text-gray-500 hover:text-gray-300 break-all"
             >
               {child.childAddr} ↗
             </a>
@@ -146,8 +146,8 @@ export default function AgentDetailPage({ params }: PageProps) {
                   key={i}
                   className="border border-gray-800 rounded-lg p-4 bg-[#0d0d14]"
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono text-xs text-gray-600">
                         Proposal #{vote.proposalId.toString()}
                       </span>
@@ -165,7 +165,7 @@ export default function AgentDetailPage({ params }: PageProps) {
                         </span>
                       )}
                     </div>
-                    <span className="font-mono text-xs text-gray-600">
+                    <span className="font-mono text-xs text-gray-600 shrink-0">
                       {formatTimestamp(vote.timestamp)}
                     </span>
                   </div>
