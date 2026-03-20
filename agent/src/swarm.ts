@@ -21,7 +21,7 @@ import {
 import {
   MockGovernorABI, ParentTreasuryABI, SpawnFactoryABI, ChildGovernorABI,
 } from "./abis.js";
-import { evaluateAlignment, generateSwarmReport, generateTerminationReport } from "./venice.js";
+import { evaluateAlignment, generateSwarmReport, generateTerminationReport, getVeniceMetrics } from "./venice.js";
 import { registerSubdomain, deregisterSubdomain, setAgentMetadata, resolveChild } from "./ens.js";
 import { deriveChildWallet } from "./wallet-manager.js";
 import { registerAgent, updateAgentMetadata } from "./identity.js";
@@ -529,6 +529,10 @@ async function main() {
       console.log(`\n[Yield]`);
       await logYieldStatus();
     } catch {}
+
+    // Venice usage metrics
+    const veniceMetrics = getVeniceMetrics();
+    console.log(`\n[Venice] Total calls: ${veniceMetrics.totalCalls} | Tokens: ${veniceMetrics.totalTokens}`);
 
     // Venice: generate swarm status report
     try {

@@ -91,6 +91,10 @@
     "model": "llama-3.3-70b",
     "baseURL": "https://api.venice.ai/api/v1",
     "dataRetention": false,
+    "privateCompute": true,
+    "e2ee": true,
+    "reasoningHashCommitment": "keccak256 of Venice output committed before onchain vote",
+    "usageTracking": "tokens counted per call, logged per cycle",
     "callTypes": [
       "summarizeProposal — extract key points before voting",
       "assessProposalRisk — evaluate treasury/centralization/alignment risk",

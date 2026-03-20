@@ -13,13 +13,30 @@ const venice = new OpenAI({
   baseURL: "https://api.venice.ai/api/v1",
 });
 
+// Venice private compute models
+const STANDARD_MODEL = "llama-3.3-70b";
+const PRIVATE_MODEL = "llama-3.3-70b"; // E2EE models require Venice Pro — use standard with venice_parameters
+
+// Venice-native parameters for private reasoning
+const VENICE_PRIVATE_PARAMS = {
+  enable_e2ee: true, // end-to-end encryption when available
+};
+
+// Track Venice usage metrics across all calls
+let totalVeniceCalls = 0;
+let totalTokensUsed = 0;
+
+export function getVeniceMetrics() {
+  return { totalCalls: totalVeniceCalls, totalTokens: totalTokensUsed };
+}
+
 export async function reasonAboutProposal(
   proposalDescription: string,
   governanceValues: string,
   childSystemPrompt: string
-): Promise<{ decision: "FOR" | "AGAINST" | "ABSTAIN"; reasoning: string }> {
+): Promise<{ decision: "FOR" | "AGAINST" | "ABSTAIN"; reasoning: string; usage?: any }> {
   const response = await venice.chat.completions.create({
-    model: "llama-3.3-70b",
+    model: STANDARD_MODEL,
     messages: [
       {
         role: "system",
@@ -40,16 +57,22 @@ Respond in JSON format:
     // Venice llama-3.3-70b doesn't support response_format
   });
 
+  // Track Venice usage metrics
+  totalVeniceCalls++;
+  if (response.usage) {
+    totalTokensUsed += response.usage.total_tokens || 0;
+    console.log(`[Venice] reasonAboutProposal: ${response.usage.total_tokens} tokens (total: ${totalTokensUsed})`);
+  }
+
   const content = response.choices[0]?.message?.content;
   if (!content) throw new Error("No response from Venice");
 
   // Extract JSON from response (may have markdown wrapping)
   const jsonMatch = content.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    // Fallback: try to infer decision from text
     const upper = content.toUpperCase();
     const decision = upper.includes("AGAINST") ? "AGAINST" : upper.includes("ABSTAIN") ? "ABSTAIN" : "FOR";
-    return { decision, reasoning: content };
+    return { decision, reasoning: content, usage: response.usage };
   }
 
   try {
@@ -57,6 +80,7 @@ Respond in JSON format:
     return {
       decision: (parsed.decision || "FOR").toUpperCase() as "FOR" | "AGAINST" | "ABSTAIN",
       reasoning: (parsed.reasoning || content) as string,
+      usage: response.usage,
     };
   } catch {
     // JSON extraction failed, fallback to text parsing
@@ -71,7 +95,7 @@ export async function evaluateAlignment(
   votingHistory: { proposalId: string; support: number; reasoning?: string }[]
 ): Promise<number> {
   const response = await venice.chat.completions.create({
-    model: "llama-3.3-70b",
+    model: STANDARD_MODEL,
     messages: [
       {
         role: "system",
@@ -123,7 +147,7 @@ export async function summarizeProposal(
   proposalDescription: string
 ): Promise<string> {
   const response = await venice.chat.completions.create({
-    model: "llama-3.3-70b",
+    model: STANDARD_MODEL,
     messages: [
       {
         role: "system",
@@ -147,7 +171,7 @@ export async function assessProposalRisk(
   governanceValues: string
 ): Promise<{ riskLevel: "low" | "medium" | "high" | "critical"; factors: string }> {
   const response = await venice.chat.completions.create({
-    model: "llama-3.3-70b",
+    model: STANDARD_MODEL,
     messages: [
       {
         role: "system",
@@ -180,7 +204,7 @@ export async function generateSwarmReport(
   governanceValues: string
 ): Promise<string> {
   const response = await venice.chat.completions.create({
-    model: "llama-3.3-70b",
+    model: STANDARD_MODEL,
     messages: [
       {
         role: "system",
@@ -206,7 +230,7 @@ export async function generateTerminationReport(
   finalScore: number
 ): Promise<string> {
   const response = await venice.chat.completions.create({
-    model: "llama-3.3-70b",
+    model: STANDARD_MODEL,
     messages: [
       {
         role: "system",

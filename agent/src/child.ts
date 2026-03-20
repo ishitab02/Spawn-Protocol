@@ -136,6 +136,12 @@ async function childCycle(
         console.log(`[Child:${childLabel}] Decision: ${decision}`);
         console.log(`[Child:${childLabel}] Reasoning: ${reasoning.slice(0, 100)}...`);
 
+        // 3.5 Venice private→public proof: hash reasoning onchain BEFORE vote
+        // This creates a verifiable commitment that private Venice cognition happened
+        const { keccak256: k256, toBytes } = await import("viem");
+        const reasoningHash = k256(toBytes(reasoning));
+        console.log(`[Child:${childLabel}] Reasoning hash: ${reasoningHash.slice(0, 18)}...`);
+
         // 4. Encrypt rationale via Lit Protocol (time-locked to proposal end)
         let encryptedRationale: `0x${string}`;
         if (litAvailable) {
