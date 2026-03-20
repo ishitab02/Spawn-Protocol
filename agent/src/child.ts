@@ -99,7 +99,10 @@ async function childCycle(
     functionName: "proposalCount",
   })) as bigint;
 
-  for (let i = 1n; i <= proposalCount; i++) {
+  // Scan backwards from newest — active proposals are always at the end
+  // Stop early once we hit 5 consecutive non-active proposals (they're all old)
+  let consecutiveInactive = 0;
+  for (let i = proposalCount; i >= 1n; i--) {
     // 2. Check proposal state (1 = Active)
     const state = (await readClient.readContract({
       address: governanceAddr,
@@ -107,6 +110,13 @@ async function childCycle(
       functionName: "state",
       args: [i],
     })) as number;
+
+    if (state !== 1) {
+      consecutiveInactive++;
+      if (consecutiveInactive >= 5) break; // all older proposals are definitely inactive
+      continue;
+    }
+    consecutiveInactive = 0;
 
     if (state === 1) {
       // Active

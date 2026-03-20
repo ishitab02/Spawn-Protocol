@@ -37,7 +37,18 @@ Record with QuickTime (Cmd+Shift+5) or Loom. Split screen recommended: dashboard
 
 ---
 
-## Scene 4: Multiple Perspectives (10 sec)
+## Scene 4: E2EE Encryption (10 sec)
+**Narrate:** "Every Venice inference runs through E2EE encrypted compute. Venice confirms enable_e2ee: true on every response. No data is stored or observable — even Venice can't see the reasoning."
+
+**Show:** Terminal showing the Venice model name and token metrics:
+```
+[Venice] reasonAboutProposal: 1001 tokens (total: 3500)
+Model: llama-3.3-70b | enable_e2ee: true
+```
+
+---
+
+## Scene 5: Multiple Perspectives (10 sec)
 **Narrate:** "Three perspectives per DAO — DeFi-focused, public-goods advocate, and conservative. They vote differently on the same proposal."
 
 **Show:** Click Proposals page — show a proposal with 3 votes: some FOR, some AGAINST from different perspectives.

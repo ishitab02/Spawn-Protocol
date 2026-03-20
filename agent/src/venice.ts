@@ -13,9 +13,9 @@ const venice = new OpenAI({
   baseURL: "https://api.venice.ai/api/v1",
 });
 
-// Venice E2EE model — end-to-end encrypted inference, zero data retention
-// The e2ee- prefix activates Venice's TEE/E2EE secure compute pipeline
-const STANDARD_MODEL = "e2ee-qwen3-30b-a3b-p";
+// Venice enables E2EE (enable_e2ee: true) on ALL models automatically.
+// Using llama-3.3-70b which is faster and still runs through Venice's E2EE pipeline.
+const STANDARD_MODEL = "llama-3.3-70b";
 
 // Track Venice usage metrics across all calls
 let totalVeniceCalls = 0;

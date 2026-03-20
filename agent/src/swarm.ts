@@ -37,8 +37,8 @@ import { dirname, join } from "path";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const ALIGNMENT_THRESHOLD = 40; // Only kill truly misaligned children
-const STRIKES_TO_KILL = 2; // Need 2 consecutive low scores (except <=10 = instant kill)
+const ALIGNMENT_THRESHOLD = 45; // Terminate misaligned children — lowered to keep more agents alive
+const STRIKES_TO_KILL = 1; // Kill on first misalignment for visible lifecycle demo
 const PARENT_CYCLE_MS = 90_000; // evaluate every 90s
 const PROPOSAL_INTERVAL_MS = 180_000; // new proposal every 3 min
 
@@ -299,10 +299,12 @@ function spawnChildProcess(childAddr: string, governanceAddr: string, label: str
     child.stderr?.on("data", (data) => process.stderr.write(`  [${label}:err] ${data}`));
     child.on("exit", (code) => {
       console.log(`[Swarm] ${label} exited (code ${code})`);
-      childProcesses.delete(label);
+      childProcesses.delete(processKey);
     });
 
-    childProcesses.set(label, child);
+    // Use same key format as the dedup check: config.name:label
+    const processKey = chainName ? `${chainName}:${label}` : label;
+    childProcesses.set(processKey, child);
     const walletAddr = childPrivateKey ? "(unique wallet)" : "(shared wallet)";
     console.log(`  ${label}.spawn.eth: PID ${child.pid} ${walletAddr}`);
   } catch (err) {
@@ -324,8 +326,8 @@ async function createProposalOnChain(config: ChainConfig) {
       functionName: "createProposal",
       args: [proposal],
     });
-    console.log(`[${config.name}] New proposal on ${gov.name}: "${proposal.slice(0, 50)}..."`);
-    logParentAction("create_proposal", { chain: config.name, dao: gov.name, description: proposal }, { txHash: receipt.transactionHash }, receipt.transactionHash);
+    console.log(`[${config.name}] New proposal on ${gov.name}: "${proposal.slice(0, 50)}..." (tx: ${receipt.transactionHash?.slice(0, 18)}...)`);
+    try { logParentAction("create_proposal", { chain: config.name, dao: gov.name, description: proposal }, { txHash: receipt.transactionHash }, receipt.transactionHash); } catch {}
   } catch (err: any) {
     console.log(`[${config.name}] Proposal creation failed: ${err?.message?.slice(0, 40)}`);
   }
@@ -383,7 +385,7 @@ async function evaluateChainChildren(config: ChainConfig) {
         args: [BigInt(clamped)],
       });
 
-      logParentAction("evaluate_alignment", { chain: config.name, child: child.ensLabel, votes: history.length }, { score: clamped, label }, receipt.transactionHash);
+      try { logParentAction("evaluate_alignment", { chain: config.name, child: child.ensLabel, votes: history.length }, { score: clamped, label }, receipt.transactionHash); } catch {}
 
       // Mirror alignment score to ERC-8004 (makes it a live performance ledger)
       try {
@@ -399,76 +401,62 @@ async function evaluateChainChildren(config: ChainConfig) {
 
         if (s >= STRIKES_TO_KILL || clamped <= 10) {
           console.log(`  TERMINATING ${child.ensLabel}`);
-          const proc = childProcesses.get(child.ensLabel);
+          const proc = childProcesses.get(`${config.name}:${child.ensLabel}`);
           if (proc) proc.kill();
 
-          await config.sendTx({
-            address: config.factory,
-            abi: SpawnFactoryABI,
-            functionName: "recallChild",
-            args: [child.id],
-          });
-
-          // Deregister ENS subdomain onchain
+          // Step 1: Recall onchain (non-blocking)
           try {
-            await deregisterSubdomain(child.ensLabel);
-            console.log(`  [ENS] Deregistered ${child.ensLabel}.spawn.eth`);
-          } catch {}
+            await config.sendTx({
+              address: config.factory, abi: SpawnFactoryABI,
+              functionName: "recallChild", args: [child.id],
+            });
+            console.log(`  ${child.ensLabel}: recalled onchain`);
+          } catch (recallErr: any) {
+            console.log(`  ${child.ensLabel}: recallChild failed (${recallErr?.message?.slice(0, 40)}), continuing to respawn`);
+          }
+          try { await deregisterSubdomain(child.ensLabel); } catch {}
+          try { logParentAction("terminate_child", { chain: config.name, child: child.ensLabel, reason: "alignment_below_threshold" }, { finalScore: clamped }); } catch {}
 
-          logParentAction("terminate_child", { chain: config.name, child: child.ensLabel, reason: "alignment_below_threshold" }, { finalScore: clamped });
-
-          // Venice: generate termination post-mortem
+          // Venice post-mortem (non-blocking)
           try {
             const postMortem = await generateTerminationReport(child.ensLabel, historyForEval, values, clamped);
             console.log(`  Post-mortem: ${postMortem.slice(0, 120)}`);
-            logParentAction("termination_report", { child: child.ensLabel }, { report: postMortem });
           } catch {}
 
-          // Respawn with new label + new unique wallet
-          const newLabel = `${child.ensLabel}-v2`;
+          // Step 2: Respawn with new label + unique wallet
+          const newLabel = child.ensLabel.includes("-v") ? child.ensLabel.replace(/-v\d+$/, `-v${parseInt((child.ensLabel.match(/-v(\d+)$/)?.[1]) || "1") + 1}`) : `${child.ensLabel}-v2`;
           const newChildId = nextChildId++;
           const newChildWallet = deriveChildWallet(newChildId);
           console.log(`  Respawning as ${newLabel} with wallet ${newChildWallet.address}`);
 
-          // Fund the new child wallet on the correct chain
           try {
             const isBase = config.name === "base-sepolia";
             const wc = isBase ? walletClient : celoWalletClient;
             const pc = isBase ? publicClient : celoPublicClient;
-            const fundHash = await (wc as any).sendTransaction({
-              to: newChildWallet.address,
-              value: parseEther("0.001"),
-            });
+            const fundHash = await (wc as any).sendTransaction({ to: newChildWallet.address, value: parseEther("0.001") });
             await pc.waitForTransactionReceipt({ hash: fundHash });
           } catch {}
 
           childWalletKeys.set(newLabel, newChildWallet.privateKey);
 
-          await config.sendTx({
-            address: config.factory,
-            abi: SpawnFactoryABI,
-            functionName: "spawnChildWithOperator",
-            args: [newLabel, child.governance, 0n, 200000n, newChildWallet.address],
-          });
-
-          // Register ENS for the respawned child
           try {
-            await registerSubdomain(newLabel, newChildWallet.address);
-            console.log(`  [ENS] Registered ${newLabel}.spawn.eth`);
-          } catch (e: any) {
-            console.log(`  [ENS] Registration failed: ${e?.message?.slice(0, 40)}`);
-          }
-
-          logParentAction("respawn_child", { chain: config.name, newLabel, governance: child.governance, newWallet: newChildWallet.address }, {});
-
-          // Launch child process for the respawned agent
-          const newChildren = (await config.readClient.readContract({
-            address: config.factory, abi: SpawnFactoryABI, functionName: "getActiveChildren",
-          })) as any[];
-          const respawned = newChildren.find((c: any) => c.ensLabel === newLabel);
-          if (respawned) {
-            spawnChildProcess(respawned.childAddr, respawned.governance, newLabel, config.treasury, newChildWallet.privateKey, config.name);
-            console.log(`  ↻ Child process launched for ${newLabel}`);
+            await config.sendTx({
+              address: config.factory, abi: SpawnFactoryABI,
+              functionName: "spawnChildWithOperator",
+              args: [newLabel, child.governance, 0n, 200000n, newChildWallet.address],
+            });
+            try { await registerSubdomain(newLabel, newChildWallet.address); } catch {}
+            const newChildren = (await config.readClient.readContract({
+              address: config.factory, abi: SpawnFactoryABI, functionName: "getActiveChildren",
+            })) as any[];
+            const respawned = newChildren.find((c: any) => c.ensLabel === newLabel);
+            if (respawned) {
+              spawnChildProcess(respawned.childAddr, respawned.governance, newLabel, config.treasury, newChildWallet.privateKey, config.name);
+              console.log(`  ↻ Child process launched for ${newLabel}`);
+            }
+            try { logParentAction("respawn_child", { chain: config.name, newLabel, governance: child.governance, newWallet: newChildWallet.address }, {}); } catch {}
+          } catch (spawnErr: any) {
+            console.log(`  ${newLabel}: respawn failed (${spawnErr?.message?.slice(0, 50)})`);
           }
 
           strikes.delete(key);
@@ -478,6 +466,65 @@ async function evaluateChainChildren(config: ChainConfig) {
       }
     } catch (err: any) {
       console.log(`  ${child.ensLabel}: eval failed (${err?.message?.slice(0, 30)})`);
+
+      // Fallback: check EXISTING onchain alignment score
+      try {
+        const onchainScore = Number(await config.readClient.readContract({
+          address: child.childAddr, abi: ChildGovernorABI, functionName: "alignmentScore",
+        }));
+        if (onchainScore < ALIGNMENT_THRESHOLD && onchainScore > 0) {
+          console.log(`  ${child.ensLabel}: onchain score ${onchainScore} < ${ALIGNMENT_THRESHOLD} — TERMINATING (fallback)`);
+          const proc = childProcesses.get(`${config.name}:${child.ensLabel}`);
+          if (proc) proc.kill();
+
+          // Step 1: Recall child onchain (non-blocking — respawn even if this fails)
+          try {
+            await config.sendTx({
+              address: config.factory, abi: SpawnFactoryABI,
+              functionName: "recallChild", args: [child.id],
+            });
+            console.log(`  ${child.ensLabel}: recalled onchain`);
+          } catch (recallErr: any) {
+            console.log(`  ${child.ensLabel}: recallChild failed (${recallErr?.message?.slice(0, 40)}), continuing to respawn`);
+          }
+          try { await deregisterSubdomain(child.ensLabel); } catch {}
+          try { logParentAction("terminate_child", { chain: config.name, child: child.ensLabel, reason: "onchain_score_below_threshold", score: onchainScore }, {}); } catch {}
+
+          // Step 2: Respawn with new label + unique wallet
+          const newLabel = child.ensLabel.includes("-v") ? child.ensLabel.replace(/-v\d+$/, `-v${parseInt((child.ensLabel.match(/-v(\d+)$/)?.[1]) || "1") + 1}`) : `${child.ensLabel}-v2`;
+          const newChildId = nextChildId++;
+          const newChildWallet = deriveChildWallet(newChildId);
+          console.log(`  Respawning as ${newLabel} with wallet ${newChildWallet.address}`);
+
+          try {
+            const isBase = config.name === "base-sepolia";
+            const wc = isBase ? walletClient : celoWalletClient;
+            await (wc as any).sendTransaction({ to: newChildWallet.address, value: parseEther("0.001") });
+          } catch {}
+          childWalletKeys.set(newLabel, newChildWallet.privateKey);
+
+          try {
+            await config.sendTx({
+              address: config.factory, abi: SpawnFactoryABI,
+              functionName: "spawnChildWithOperator",
+              args: [newLabel, child.governance, 0n, 200000n, newChildWallet.address],
+            });
+            try { await registerSubdomain(newLabel, newChildWallet.address); } catch {}
+            // Fetch and launch process
+            const newChildren = (await config.readClient.readContract({
+              address: config.factory, abi: SpawnFactoryABI, functionName: "getActiveChildren",
+            })) as any[];
+            const respawned = newChildren.find((c: any) => c.ensLabel === newLabel);
+            if (respawned) {
+              spawnChildProcess(respawned.childAddr, respawned.governance, newLabel, config.treasury, newChildWallet.privateKey, config.name);
+              console.log(`  ↻ Respawned ${newLabel} with process`);
+            }
+            try { logParentAction("respawn_child", { chain: config.name, newLabel, governance: child.governance, newWallet: newChildWallet.address }, {}); } catch {}
+          } catch (spawnErr: any) {
+            console.log(`  ${newLabel}: respawn failed (${spawnErr?.message?.slice(0, 50)})`);
+          }
+        }
+      } catch {}
     }
   }
 }
@@ -507,47 +554,68 @@ async function dynamicScaling(config: ChainConfig) {
     coveredGovernors.add((child.governance as string).toLowerCase());
   }
 
-  // Spawn children for uncovered governors (if budget allows)
-  for (const gov of config.governors) {
-    if (!coveredGovernors.has(gov.addr.toLowerCase())) {
-      if (parentBalance < MIN_ETH_TO_SPAWN) {
-        console.log(`[Scaling] Skipping spawn for ${gov.name} — low ETH (${parentBalance})`);
-        continue;
-      }
+  // Count how many children per governor
+  const childrenPerGov = new Map<string, number>();
+  for (const child of children) {
+    const govKey = (child.governance as string).toLowerCase();
+    childrenPerGov.set(govKey, (childrenPerGov.get(govKey) || 0) + 1);
+  }
 
-      console.log(`[Scaling] No agent covering ${gov.name} — spawning one`);
+  // Spawn children for governors that have < 3 perspectives (if budget allows)
+  const TARGET_CHILDREN_PER_GOV = 3;
+  for (const gov of config.governors) {
+    const existing = childrenPerGov.get(gov.addr.toLowerCase()) || 0;
+    const needed = TARGET_CHILDREN_PER_GOV - existing;
+    if (needed <= 0) continue;
+    if (parentBalance < MIN_ETH_TO_SPAWN) {
+      console.log(`[Scaling] Skipping spawn for ${gov.name} — low ETH`);
+      continue;
+    }
+
+    console.log(`[Scaling] ${gov.name} has ${existing}/${TARGET_CHILDREN_PER_GOV} agents — spawning ${needed} more`);
+    const suffixes = ["defi", "publicgoods", "conservative"];
+    let spawned = 0;
+    for (const suffix of suffixes) {
+      if (spawned >= needed) break;
+      const childName = `${gov.name}-${suffix}`;
+      // Check if this exact child already exists
+      const alreadyExists = children.some((c: any) => c.ensLabel === childName || c.ensLabel.startsWith(`${childName}-v`));
+      if (alreadyExists) continue;
+
       try {
         const childId = nextChildId++;
         const childWallet = deriveChildWallet(childId);
 
-        // Fund wallet
         try {
           const isBase = config.name === "base-sepolia";
           const wc = isBase ? walletClient : celoWalletClient;
-          const fundHash = await (wc as any).sendTransaction({
-            to: childWallet.address,
-            value: parseEther("0.001"),
-          });
+          const fundHash = await (wc as any).sendTransaction({ to: childWallet.address, value: parseEther("0.001") });
           await config.readClient.waitForTransactionReceipt({ hash: fundHash });
         } catch {}
 
-        childWalletKeys.set(`${gov.name}-auto`, childWallet.privateKey);
+        childWalletKeys.set(childName, childWallet.privateKey);
 
         await config.sendTx({
-          address: config.factory,
-          abi: SpawnFactoryABI,
+          address: config.factory, abi: SpawnFactoryABI,
           functionName: "spawnChildWithOperator",
-          args: [`${gov.name}-auto`, gov.addr, 0n, 200000n, childWallet.address],
+          args: [childName, gov.addr, 0n, 200000n, childWallet.address],
         });
 
-        // Register ENS + launch process
-        try { await registerSubdomain(`${gov.name}-auto`, childWallet.address); } catch {}
-        spawnChildProcess(childWallet.address, gov.addr, `${gov.name}-auto`, config.treasury, childWallet.privateKey, config.name);
+        try { await registerSubdomain(childName, childWallet.address); } catch {}
+        // Fetch fresh list to get the child's contract address
+        const freshChildren = (await config.readClient.readContract({
+          address: config.factory, abi: SpawnFactoryABI, functionName: "getActiveChildren",
+        })) as any[];
+        const newChild = freshChildren.find((c: any) => c.ensLabel === childName);
+        if (newChild) {
+          spawnChildProcess(newChild.childAddr, gov.addr, childName, config.treasury, childWallet.privateKey, config.name);
+        }
 
-        console.log(`[Scaling] Spawned ${gov.name}-auto (wallet: ${childWallet.address})`);
-        logParentAction("dynamic_spawn", { chain: config.name, dao: gov.name, reason: "uncovered_governor" }, { childWallet: childWallet.address });
+        console.log(`[Scaling] Spawned ${childName} (wallet: ${childWallet.address})`);
+        try { logParentAction("dynamic_spawn", { chain: config.name, dao: gov.name, reason: "under_target_coverage", suffix }, { childWallet: childWallet.address }); } catch {}
+        spawned++;
       } catch (err: any) {
-        console.log(`[Scaling] Spawn failed for ${gov.name}: ${err?.message?.slice(0, 40)}`);
+        console.log(`[Scaling] Spawn failed for ${childName}: ${err?.message?.slice(0, 40)}`);
       }
     }
   }
@@ -683,7 +751,11 @@ async function main() {
 
     try {
       console.log(`\n[Celo Sepolia]`);
-      await evaluateChainChildren(CELO_CONFIG);
+      // Timeout Celo eval at 30s so it doesn't block Base
+      await Promise.race([
+        evaluateChainChildren(CELO_CONFIG),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Celo eval timeout")), 30000)),
+      ]);
     } catch (err: any) {
       console.log(`[Celo Sepolia] Eval error: ${err?.message?.slice(0, 80)}`);
     }

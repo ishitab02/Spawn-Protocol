@@ -295,6 +295,7 @@
     "reasoningCalls": 7,
     "reasoningProvider": "venice",
     "reasoningModel": "llama-3.3-70b",
+    "e2eeEnabled": true,
     "yieldWithdrawals": 1,
     "ensSubdomainsRegistered": 10,
     "contractsVerified": 9

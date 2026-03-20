@@ -155,7 +155,7 @@ const venice = new OpenAI({
 ## Tech Stack
 - **Contracts:** Foundry + Solidity (OpenZeppelin for Clones, Governor interface)
 - **Agent Runtime:** TypeScript + viem + openai (with Venice base URL)
-- **Private Reasoning:** Venice API (llama-3.3-70b, no data retention)
+- **Private Reasoning:** Venice API (llama-3.3-70b, E2EE enabled on all models, zero data retention)
 - **Encryption:** Lit Protocol SDK (@lit-protocol/lit-node-client)
 - **Delegations:** MetaMask Delegation Toolkit (@metamask/delegation-toolkit)
 - **Identity:** ERC-8004 on Base Sepolia

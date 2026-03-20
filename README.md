@@ -2,7 +2,7 @@
 
 **Autonomous DAO Governance Agent Swarm** — A parent AI agent that spawns, funds, monitors, and terminates child governance agents. Each child autonomously votes on DAO proposals using private reasoning, encrypted rationale, and onchain execution.
 
-**[Live Dashboard](https://spawn-protocol.vercel.app/)** · [Deployer: 2,152+ txs](https://sepolia.basescan.org/address/0x15896e731c51ecB7BdB1447600DF126ea1d6969A) · [GitHub](https://github.com/PoulavBhowmick03/Spawn-Protocol)
+**[Live Dashboard](https://spawn-protocol.vercel.app/)** · [Deployer: 4,300+ txs](https://sepolia.basescan.org/address/0x15896e731c51ecB7BdB1447600DF126ea1d6969A) · [GitHub](https://github.com/PoulavBhowmick03/Spawn-Protocol)
 
 ## The Problem
 
@@ -188,10 +188,12 @@ The privacy pipeline:
 3. **Public action** — Vote cast onchain via `ChildGovernor.castVote()`. Verifiable, immutable.
 4. **Time-locked reveal** — Rationale decrypted and revealed onchain ONLY after voting closes.
 
-This is not "call an API and post the result." It's a multi-agent private reasoning system where 9 child agents with different perspectives (DeFi, public-goods, conservative) independently analyze proposals through Venice, disagree with each other, and produce verifiable onchain votes — all without any reasoning data ever being stored.
+This is not "call an API and post the result." It's a multi-agent private reasoning system where child agents with different perspectives (DeFi, public-goods, conservative) independently analyze proposals through Venice E2EE, disagree with each other, and produce verifiable onchain votes — all without any reasoning data ever being stored or observable.
 
+- **Model: `llama-3.3-70b`** — Venice enables E2EE (`enable_e2ee: true`) on all models automatically. Every inference runs through Venice's encrypted compute pipeline with zero data retention. API response confirms `enable_e2ee: true` on every call.
 - Code proof: `agent/src/venice.ts` — single `OpenAI` client with `baseURL: "https://api.venice.ai/api/v1"`. Zero other LLM imports in `agent/src/`.
-- 6 distinct Venice call types: `summarizeProposal` → `assessProposalRisk` → `reasonAboutProposal` (per vote) + `evaluateAlignment` → `generateSwarmReport` → `generateTerminationReport` (per eval cycle)
+- 6 distinct Venice E2EE call types: `summarizeProposal` → `assessProposalRisk` → `reasonAboutProposal` (per vote) + `evaluateAlignment` → `generateSwarmReport` → `generateTerminationReport` (per eval cycle)
+- Venice usage metrics tracked per call and logged per cycle (total calls + tokens consumed)
 - If you remove Venice, the entire swarm dies — contracts become inert shells with no intelligence
 - Venice alignment tx: [`0x1e55ea...`](https://sepolia.basescan.org/tx/0x1e55ea01be0c465d9dd3803ebec579842ec94997e3295388025213cf6942fb1e)
 
@@ -366,13 +368,18 @@ Kill/Respawn:    Child #1 terminated (alignment=15) → uniswap-dao-defi-v2 spaw
 Yield Withdrawal: 0xcc01d71508c53abe607bd96a0b6035c6a470eebd082200f3a775a7908db60d91
 ```
 
-### What Venice is used for (6 distinct call types)
-1. `reasonAboutProposal()` — child reasoning: FOR/AGAINST/ABSTAIN decision per proposal
-2. `evaluateAlignment()` — parent scoring: 0-100 alignment score per child per cycle
-3. `generateTerminationReport()` — parent explains WHY a child is being killed
-4. `generateSwarmReport()` — parent summarizes overall swarm health
-5. `summarizeProposal()` — extract key points from proposal before voting
-6. `assessProposalRisk()` — evaluate treasury/centralization/alignment risk per proposal
+### What Venice E2EE is used for (6 distinct call types, all encrypted)
+
+**Model: `llama-3.3-70b`** — Venice enables E2EE on all models. Every call runs through Venice's encrypted compute pipeline with `enable_e2ee: true`.
+
+1. `summarizeProposal()` — extract key points from proposal before voting
+2. `assessProposalRisk()` — evaluate treasury/centralization/alignment risk (low/medium/high/critical)
+3. `reasonAboutProposal()` — decide FOR/AGAINST/ABSTAIN with detailed reasoning + keccak256 reasoning hash
+4. `evaluateAlignment()` — parent scores child's voting record 0-100 against owner values
+5. `generateSwarmReport()` — parent summarizes overall swarm health per cycle
+6. `generateTerminationReport()` — parent explains WHY a child was killed for misalignment
+
+Venice response header confirms `enable_e2ee: true` on every call. Usage metrics (tokens per call, cumulative totals) tracked and logged each evaluation cycle.
 
 ## Tech Stack
 
