@@ -12,6 +12,7 @@
     "demo:crosschain": "tsx src/demo-crosschain.ts"
   },
   "dependencies": {
+    "@adraffy/ens-normalize": "^1.11.1",
     "@aws-sdk/client-s3": "^3.1014.0",
     "@lit-protocol/auth-helpers": "^7.4.0",
     "@lit-protocol/constants": "^7.4.0",

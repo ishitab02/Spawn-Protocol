@@ -40,13 +40,22 @@ contract SpawnENSRegistry {
         owner = msg.sender;
     }
 
-    /// @notice Compute a simple namehash for a label under spawn.eth
+    /// @notice Compute ENS-compliant namehash for a label under spawn.eth
+    /// @dev Uses the standard ENS namehash algorithm: namehash(label.spawn.eth) =
+    ///      keccak256(namehash("spawn.eth") + keccak256(label))
+    ///      where namehash("spawn.eth") = keccak256(namehash("eth") + keccak256("spawn"))
+    ///      This matches the official ENS namehash spec (ENSIP-1).
     function computeNode(string calldata label) external pure returns (bytes32) {
         return _computeNode(label);
     }
 
+    /// @dev ENS namehash("eth") = keccak256(bytes32(0) ++ keccak256("eth"))
+    bytes32 private constant NAMEHASH_ETH = 0x93cdeb708b7545dc668eb9280176169d1c33cfd8ed6f04690a0bcc88a93fc4ae;
+    /// @dev ENS namehash("spawn.eth") = keccak256(NAMEHASH_ETH ++ keccak256("spawn"))
+    bytes32 private constant NAMEHASH_SPAWN_ETH = keccak256(abi.encodePacked(NAMEHASH_ETH, keccak256("spawn")));
+
     function _computeNode(string memory label) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked(label));
+        return keccak256(abi.encodePacked(NAMEHASH_SPAWN_ETH, keccak256(bytes(label))));
     }
 
     /// @notice Register a subdomain (e.g., "uniswap-dao" => "uniswap-dao.spawn.eth")

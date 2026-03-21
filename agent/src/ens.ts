@@ -12,6 +12,7 @@
  */
 
 import { type Address, type Hex } from "viem";
+import { ens_normalize } from "@adraffy/ens-normalize";
 import { account, publicClient, walletClient, sendTxAndWait } from "./chain.js";
 
 // ── SpawnENSRegistry deployed on Base Sepolia ──
@@ -184,7 +185,7 @@ export async function registerSubdomain(
   label: string,
   childAddress: Address
 ): Promise<{ name: string; node?: Hex; txHash?: string }> {
-  const normalizedLabel = label.toLowerCase().replace(/[^a-z0-9-]/g, "");
+  const normalizedLabel = (() => { try { return ens_normalize(label); } catch { return label.toLowerCase().replace(/[^a-z0-9-]/g, ""); } })();
   const fullName = `${normalizedLabel}.${PARENT_DOMAIN}`;
 
   console.log(`[ENS] Registering subdomain onchain: ${fullName} => ${childAddress}`);
@@ -214,7 +215,7 @@ export async function registerSubdomain(
  * Deregister a subdomain onchain when a child is terminated.
  */
 export async function deregisterSubdomain(label: string): Promise<boolean> {
-  const normalizedLabel = label.toLowerCase().replace(/[^a-z0-9-]/g, "");
+  const normalizedLabel = (() => { try { return ens_normalize(label); } catch { return label.toLowerCase().replace(/[^a-z0-9-]/g, ""); } })();
   const fullName = `${normalizedLabel}.${PARENT_DOMAIN}`;
 
   console.log(`[ENS] Deregistering subdomain onchain: ${fullName}`);
@@ -239,7 +240,7 @@ export async function deregisterSubdomain(label: string): Promise<boolean> {
  * Resolve a child agent's address from its subdomain label via onchain lookup.
  */
 export async function resolveChild(label: string): Promise<Address | null> {
-  const normalizedLabel = label.toLowerCase().replace(/[^a-z0-9-]/g, "");
+  const normalizedLabel = (() => { try { return ens_normalize(label); } catch { return label.toLowerCase().replace(/[^a-z0-9-]/g, ""); } })();
   const fullName = `${normalizedLabel}.${PARENT_DOMAIN}`;
 
   try {
@@ -289,7 +290,7 @@ export async function setChildTextRecord(
   key: string,
   value: string
 ): Promise<Hex | null> {
-  const normalizedLabel = label.toLowerCase().replace(/[^a-z0-9-]/g, "");
+  const normalizedLabel = (() => { try { return ens_normalize(label); } catch { return label.toLowerCase().replace(/[^a-z0-9-]/g, ""); } })();
 
   try {
     const receipt = await sendTxAndWait({
