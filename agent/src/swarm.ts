@@ -1041,7 +1041,7 @@ async function main() {
     } catch {}
 
     // Pin agent log to IPFS and store CID onchain
-    if (process.env.PINATA_JWT) {
+    if (process.env.FILEBASE_KEY) {
       pinAgentLog()
         .then(async (cid) => {
           console.log(`[IPFS] Agent log pinned: ${cid}`);

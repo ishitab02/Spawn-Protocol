@@ -126,7 +126,7 @@ export default function SwarmPage() {
         <div className="flex flex-wrap gap-3 mb-6">
           {ipfsCid && (
             <a
-              href={`https://gateway.pinata.cloud/ipfs/${ipfsCid}`}
+              href={`https://ipfs.filebase.io/ipfs/${ipfsCid}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 border border-purple-400/30 bg-purple-400/5 rounded-lg px-4 py-2 hover:bg-purple-400/10 transition-all"

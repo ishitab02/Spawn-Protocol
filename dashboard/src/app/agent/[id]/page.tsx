@@ -52,11 +52,11 @@ export default function AgentDetailPage({ params }: PageProps) {
       const cid = (lineageSelf || lineageBase) as string;
       if (cid) {
         setLineageMemoryCid(cid);
-        // Try multiple IPFS gateways — Pinata public gateway often rate-limits (429)
+        // Try multiple IPFS gateways
         const gateways = [
+          `https://ipfs.filebase.io/ipfs/${cid}`,
           `https://ipfs.io/ipfs/${cid}`,
           `https://cloudflare-ipfs.com/ipfs/${cid}`,
-          `https://gateway.pinata.cloud/ipfs/${cid}`,
           `https://dweb.link/ipfs/${cid}`,
         ];
         (async () => {
@@ -192,7 +192,7 @@ export default function AgentDetailPage({ params }: PageProps) {
           <div className="border border-cyan-400/30 bg-cyan-400/5 rounded-lg p-5 mb-6">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-xs font-mono text-cyan-400 uppercase tracking-widest">Lineage Memory</h2>
-              <a href={`https://gateway.pinata.cloud/ipfs/${lineageMemoryCid}`} target="_blank" rel="noopener noreferrer" className="text-[10px] font-mono text-purple-400 hover:text-purple-300 border border-purple-400/30 rounded px-1.5 py-0.5">
+              <a href={`https://ipfs.filebase.io/ipfs/${lineageMemoryCid}`} target="_blank" rel="noopener noreferrer" className="text-[10px] font-mono text-purple-400 hover:text-purple-300 border border-purple-400/30 rounded px-1.5 py-0.5">
                 IPFS {lineageMemoryCid.slice(0, 12)}... ↗
               </a>
             </div>

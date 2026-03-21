@@ -106,7 +106,7 @@ export default function LogsPage() {
           const gateways = [
             `https://ipfs.io/ipfs/${cid}`,
             `https://cloudflare-ipfs.com/ipfs/${cid}`,
-            `https://gateway.pinata.cloud/ipfs/${cid}`,
+            `https://ipfs.filebase.io/ipfs/${cid}`,
             `https://dweb.link/ipfs/${cid}`,
           ];
           for (const url of gateways) {
@@ -193,7 +193,7 @@ export default function LogsPage() {
       {log && (log.metrics as any).latestIPFSCid && (
         <div className="mb-4 flex flex-wrap gap-3">
           <a
-            href={`https://gateway.pinata.cloud/ipfs/${(log.metrics as any).latestIPFSCid}`}
+            href={`https://ipfs.filebase.io/ipfs/${(log.metrics as any).latestIPFSCid}`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2 border border-purple-400/30 bg-purple-400/5 rounded-lg px-4 py-2.5 hover:bg-purple-400/10 transition-all"

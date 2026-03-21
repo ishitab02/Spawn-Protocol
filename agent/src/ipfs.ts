@@ -1,62 +1,79 @@
 /**
- * IPFS Integration — Pin agent execution logs to IPFS via Pinata
+ * IPFS Integration — Pin agent execution logs to IPFS via Filebase
  *
  * Provides verifiable, immutable storage for agent_log.json so that
  * governance actions have a permanent audit trail beyond the local file.
  *
- * Uses Pinata's free HTTP API (no SDK). Gracefully degrades if PINATA_JWT
- * is not set — logs a warning and skips without crashing.
+ * Uses Filebase's S3-compatible API (no SDK beyond @aws-sdk/client-s3).
+ * Gracefully degrades if FILEBASE_KEY/SECRET/BUCKET are not set.
  */
 
 import { readFileSync } from "fs";
 import { join } from "path";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { setChildTextRecord } from "./ens.js";
 
-const PINATA_API_URL = "https://api.pinata.cloud/pinning/pinJSONToIPFS";
+const FILEBASE_ENDPOINT = "https://s3.filebase.com";
 const LOG_PATH = join(process.cwd(), "..", "agent_log.json");
 
-function getPinataJWT(): string | null {
-  const jwt = process.env.PINATA_JWT;
-  if (!jwt) {
-    console.warn("[IPFS] PINATA_JWT not set — skipping IPFS pin");
+function getCredentials(): { key: string; secret: string; bucket: string } | null {
+  const key = process.env.FILEBASE_KEY;
+  const secret = process.env.FILEBASE_SECRET;
+  const bucket = process.env.FILEBASE_BUCKET;
+  if (!key || !secret || !bucket) {
+    console.warn("[IPFS] FILEBASE_KEY/FILEBASE_SECRET/FILEBASE_BUCKET not set — skipping IPFS pin");
     return null;
   }
-  return jwt;
+  return { key, secret, bucket };
 }
 
 /**
- * Pin arbitrary JSON data to IPFS via Pinata.
+ * Pin arbitrary JSON data to IPFS via Filebase S3-compatible API.
  * Returns the CID (content identifier) on success.
+ * Filebase returns the IPFS CID in the x-amz-meta-cid response header.
  */
 export async function pinToIPFS(data: any): Promise<string> {
-  const jwt = getPinataJWT();
-  if (!jwt) {
-    throw new Error("PINATA_JWT not configured");
+  const creds = getCredentials();
+  if (!creds) {
+    throw new Error("Filebase credentials not configured");
   }
 
-  const body = JSON.stringify({
-    pinataContent: data,
-    pinataMetadata: {
-      name: `spawn-protocol-log-${Date.now()}`,
+  const client = new S3Client({
+    endpoint: FILEBASE_ENDPOINT,
+    region: "us-east-1",
+    credentials: {
+      accessKeyId: creds.key,
+      secretAccessKey: creds.secret,
     },
+    forcePathStyle: true,
   });
 
-  const response = await fetch(PINATA_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${jwt}`,
-    },
-    body,
-  });
+  const objectKey = `spawn-protocol-${Date.now()}.json`;
+  let cid: string | undefined;
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => "unknown error");
-    throw new Error(`Pinata API error ${response.status}: ${text}`);
+  // Middleware to capture IPFS CID from Filebase response header
+  client.middlewareStack.add(
+    (next: any) => async (args: any) => {
+      const result = await next(args);
+      cid = (result.response as any)?.headers?.["x-amz-meta-cid"];
+      return result;
+    },
+    { step: "deserialize", priority: "high" }
+  );
+
+  await client.send(
+    new PutObjectCommand({
+      Bucket: creds.bucket,
+      Key: objectKey,
+      Body: JSON.stringify(data),
+      ContentType: "application/json",
+    })
+  );
+
+  if (!cid) {
+    throw new Error("Filebase did not return CID in response headers");
   }
-
-  const result = (await response.json()) as { IpfsHash: string };
-  return result.IpfsHash;
+  return cid;
 }
 
 /**
