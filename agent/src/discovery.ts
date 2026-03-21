@@ -28,7 +28,7 @@ export interface DiscoveredProposal {
   /** DAO slug */
   daoSlug: string;
   /** Source platform */
-  source: "tally" | "snapshot" | "simulated";
+  source: "tally" | "snapshot" | "boardroom" | "simulated";
   /** Timestamp when we discovered it */
   discoveredAt: number;
 }
@@ -37,7 +37,7 @@ export interface DiscoveredDAO {
   name: string;
   slug: string;
   proposalCount: number;
-  source: "tally" | "snapshot" | "simulated";
+  source: "tally" | "snapshot" | "boardroom" | "simulated";
 }
 
 // ── State (deduplication) ──
@@ -151,6 +151,93 @@ async function fetchFromTally(): Promise<DiscoveredProposal[]> {
 
   if (results.length > 0) {
     console.log(`[Discovery] Tally: ${results.length} new proposals from ${TALLY_ORGS.length} DAOs`);
+  }
+  return results;
+}
+
+// ── Boardroom API ──
+
+const BOARDROOM_ENDPOINT = "https://api.boardroom.info/v1";
+
+// Major protocols on Boardroom — common names
+const BOARDROOM_PROTOCOLS = [
+  "aave",
+  "uniswap",
+  "compound",
+  "gitcoin",
+  "ens",
+  "nouns",
+  "balancer",
+  "safe",
+  "arbitrum",
+  "optimism",
+  "frax",
+  "sushiswap",
+  "maker",
+  "yearn",
+  "curve",
+];
+
+async function fetchFromBoardroom(): Promise<DiscoveredProposal[]> {
+  const apiKey = process.env.BOARDROOM_API_KEY;
+  if (!apiKey) {
+    console.log("[Discovery] No BOARDROOM_API_KEY set — skipping Boardroom");
+    return [];
+  }
+
+  const results: DiscoveredProposal[] = [];
+  const now = Math.floor(Date.now() / 1000);
+
+  for (const protocol of BOARDROOM_PROTOCOLS) {
+    try {
+      const url = `${BOARDROOM_ENDPOINT}/protocols/${protocol}/proposals?key=${apiKey}&limit=5`;
+      const response = await fetch(url, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!response.ok) continue;
+
+      const json = (await response.json()) as {
+        data?: Array<{
+          refId: string;
+          title: string;
+          content?: string;
+          protocol: string;
+          currentState?: string;
+        }>;
+      };
+
+      const proposals = json.data || [];
+      for (const p of proposals) {
+        const externalId = `boardroom-${p.refId}`;
+        if (seenProposals.has(externalId)) continue;
+
+        const daoName = p.protocol.charAt(0).toUpperCase() + p.protocol.slice(1);
+        const daoSlug = p.protocol;
+
+        trackDAO(daoName, daoSlug, "boardroom");
+
+        results.push({
+          externalId,
+          title: p.title || "Untitled",
+          description: `[${daoName} — Real Governance via Boardroom] ${p.title}\n\n${truncate(p.content || p.title)}`,
+          daoName,
+          daoSlug,
+          source: "boardroom",
+          discoveredAt: now,
+        });
+      }
+
+      await sleep(500); // light rate limiting
+    } catch (err: any) {
+      console.log(`[Discovery] Boardroom fetch error for ${protocol}: ${err?.message?.slice(0, 60)}`);
+    }
+  }
+
+  if (results.length > 0) {
+    console.log(`[Discovery] Boardroom: ${results.length} new proposals from ${BOARDROOM_PROTOCOLS.length} protocols`);
   }
   return results;
 }
@@ -292,7 +379,7 @@ function truncate(text: string, maxLen = 1500): string {
   return text.slice(0, maxLen) + "...";
 }
 
-function trackDAO(name: string, slug: string, source: "tally" | "snapshot" | "simulated") {
+function trackDAO(name: string, slug: string, source: "tally" | "snapshot" | "boardroom" | "simulated") {
   const existing = discoveredDAOs.get(slug);
   if (existing) {
     existing.proposalCount++;
@@ -356,7 +443,8 @@ function pickGovernor(
   // DeFi protocols → Uniswap governor
   if (slug.includes("uniswap") || slug.includes("compound") || slug.includes("aave") ||
       slug.includes("balancer") || slug.includes("maker") || slug.includes("cow") ||
-      name.includes("defi") || name.includes("swap")) {
+      slug.includes("curve") || slug.includes("sushi") || slug.includes("frax") ||
+      slug.includes("yearn") || name.includes("defi") || name.includes("swap")) {
     return governors.find(g => g.name.toLowerCase().includes("uniswap")) || governors[0];
   }
 
@@ -400,7 +488,21 @@ async function pollOnce(
     console.log(`[Discovery] Tally error: ${err?.message?.slice(0, 50)}`);
   }
 
-  // 2. Fetch from Snapshot
+  // 2. Fetch from Boardroom
+  try {
+    const boardroomProposals = await fetchFromBoardroom();
+    for (const p of boardroomProposals) {
+      if (!seenProposals.has(p.externalId)) {
+        seenProposals.add(p.externalId);
+        allProposals.push(p);
+        newProposals.push(p);
+      }
+    }
+  } catch (err: any) {
+    console.log(`[Discovery] Boardroom error: ${err?.message?.slice(0, 50)}`);
+  }
+
+  // 3. Fetch from Snapshot
   try {
     const snapshotProposals = await fetchFromSnapshot();
     for (const p of snapshotProposals) {
@@ -414,7 +516,7 @@ async function pollOnce(
     console.log(`[Discovery] Snapshot error: ${err?.message?.slice(0, 50)}`);
   }
 
-  // 3. If no real proposals found, generate simulated ones
+  // 4. If no real proposals found, generate simulated ones
   if (newProposals.length === 0) {
     const sim = generateSimulatedProposal();
     if (!seenProposals.has(sim.externalId)) {
@@ -424,7 +526,7 @@ async function pollOnce(
     }
   }
 
-  // 4. Mirror new proposals to MockGovernor (max 3 per poll to avoid nonce issues)
+  // 5. Mirror new proposals to MockGovernor (max 3 per poll to avoid nonce issues)
   const toMirror = newProposals.slice(0, 3);
   for (const p of toMirror) {
     await mirrorToMockGovernor(p, governors, sendTxFn);
@@ -459,7 +561,7 @@ export async function startProposalFeed(
   sendTxFn: SendTxFn
 ): Promise<() => void> {
   console.log("[Discovery] Starting multi-source proposal feed...");
-  console.log(`[Discovery] Sources: Tally (${TALLY_ORGS.length} DAOs) + Snapshot (${SNAPSHOT_SPACES.length} spaces) + simulated`);
+  console.log(`[Discovery] Sources: Tally (${TALLY_ORGS.length} DAOs) + Boardroom (${BOARDROOM_PROTOCOLS.length} protocols) + Snapshot (${SNAPSHOT_SPACES.length} spaces) + simulated`);
   console.log(`[Discovery] Governors: ${governors.map(g => g.name).join(", ")}`);
   console.log(`[Discovery] Poll interval: ${POLL_INTERVAL_MS / 1000}s`);
 
@@ -523,6 +625,7 @@ export function getFeedStats() {
     discoveredDAOs: discoveredDAOs.size,
     sources: {
       tally: allProposals.filter(p => p.source === "tally").length,
+      boardroom: allProposals.filter(p => p.source === "boardroom").length,
       snapshot: allProposals.filter(p => p.source === "snapshot").length,
       simulated: allProposals.filter(p => p.source === "simulated").length,
     },
