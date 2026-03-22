@@ -125,14 +125,13 @@ export function useTimeline() {
         if (addr) knownChildAddresses.current.add(addr);
       }
 
-      // VoteCast: query the 3 MockGovernor addresses with OZ IGovernor event shape.
-      // ChildGovernor calls MockGovernor.castVote → emits VoteCast(voter=childAddr,...).
-      // 3 known addresses = tiny request, no 413. Works on both initial load and polls.
-      // AlignmentUpdated: ChildGovernor-only event, skip on initial load to avoid 413.
+      // VoteCast: 3 MockGovernor addresses — no further filter needed (already scoped).
+      // AlignmentUpdated + RationaleRevealed: ChildGovernor-only events. Range limit (10k)
+      // means no-address filter 413s on full history; skip on initial load, poll-only.
       const knownSet = new Set([...knownChildAddresses.current].map((a) => a.toLowerCase()));
       const childFrom = isInitial ? DEPLOY_BLOCK : fromBlock;
 
-      const [allVoteLogs, allAlignmentLogs] = await Promise.all([
+      const [voteLogs, alignmentLogs, revealedLogs] = await Promise.all([
         getLogsInRange({
           address: MOCK_GOVERNOR_ADDRS,
           event: { type: "event", name: "VoteCast", inputs: [
@@ -147,9 +146,16 @@ export function useTimeline() {
             { name: "newScore", type: "uint256", indexed: false },
           ]},
         }, fromBlock, currentBlock).catch(() => [] as any[]),
+        isInitial ? Promise.resolve([] as any[]) : getLogsInRange({
+          event: { type: "event", name: "RationaleRevealed", inputs: [
+            { name: "proposalId", type: "uint256", indexed: true },
+            { name: "decryptedRationale", type: "bytes", indexed: false },
+          ]},
+        }, fromBlock, currentBlock).catch(() => [] as any[]),
       ]);
-      const voteCastLogs = (allVoteLogs as any[]).filter((log) => knownSet.has((log.args?.voter as string)?.toLowerCase()));
-      const alignmentLogs = (allAlignmentLogs as any[]).filter((log) => knownSet.has((log.address as string)?.toLowerCase()));
+      const voteCastLogs = voteLogs as any[];
+      const alignmentLogsFiltered = (alignmentLogs as any[]).filter((log) => knownSet.has((log.address as string)?.toLowerCase()));
+      const revealedLogsFiltered = (revealedLogs as any[]).filter((log) => knownSet.has((log.address as string)?.toLowerCase()));
 
       // Build new events and merge into cache (deduplicates by id)
       const newEvents: TimelineEvent[] = [
@@ -195,12 +201,19 @@ export function useTimeline() {
           transactionHash: log.transactionHash ?? ("0x" as `0x${string}`),
           data: { childAddr: log.args?.voter, proposalId: log.args?.proposalId?.toString(), support: Number(log.args?.support ?? 0) },
         })),
-        ...alignmentLogs.map((log: any) => ({
+        ...alignmentLogsFiltered.map((log: any) => ({
           id: `alignment-${log.transactionHash}-${log.logIndex}`,
           type: "AlignmentUpdated" as EventType,
           blockNumber: log.blockNumber ?? BigInt(0),
           transactionHash: log.transactionHash ?? ("0x" as `0x${string}`),
           data: { childAddr: log.address, newScore: log.args?.newScore?.toString() },
+        })),
+        ...revealedLogsFiltered.map((log: any) => ({
+          id: `revealed-${log.transactionHash}-${log.logIndex}`,
+          type: "RationaleRevealed" as EventType,
+          blockNumber: log.blockNumber ?? BigInt(0),
+          transactionHash: log.transactionHash ?? ("0x" as `0x${string}`),
+          data: { childAddr: log.address, proposalId: log.args?.proposalId?.toString() },
         })),
       ];
 
