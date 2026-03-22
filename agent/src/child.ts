@@ -3,7 +3,7 @@ import { createWalletClientFromKey } from "./wallet-manager.js";
 import { ChildGovernorABI, MockGovernorABI } from "./abis.js";
 import { reasonAboutProposal, summarizeProposal, assessProposalRisk } from "./venice.js";
 import { initLit, encryptRationale, decryptRationale, disconnectLit } from "./lit.js";
-import { getDelegationsForChild, redeemVoteDelegation } from "./delegation.js";
+import { getDelegationsForChild, redeemVoteDelegation, importDelegation } from "./delegation.js";
 import { toHex, type Hex, type Address } from "viem";
 import type { DeployedAddresses, ProposalInfo } from "./types.js";
 import { logChildAction } from "./logger.js";
@@ -77,6 +77,20 @@ export async function runChildLoop(
   } else {
     childWalletClient = walletClient;
     console.log(`[Child:${childLabel}] Using shared parent wallet: ${account.address}`);
+  }
+
+  // Import delegation from parent process if provided via env var.
+  // The in-memory activeDelegations map in delegation.ts is per-process — child
+  // processes start with an empty map. The parent serializes the delegation record
+  // as DELEGATION_DATA so this process can use it for DelegationManager redemption.
+  if (process.env.DELEGATION_DATA) {
+    try {
+      const record = JSON.parse(process.env.DELEGATION_DATA);
+      importDelegation(record);
+      console.log(`[Child:${childLabel}] Imported delegation from parent: ${record.delegationHash?.slice(0, 18)}...`);
+    } catch (parseErr: any) {
+      console.log(`[Child:${childLabel}] Failed to parse DELEGATION_DATA: ${parseErr?.message?.slice(0, 60)}`);
+    }
   }
 
   console.log(`[Child:${childLabel}] Starting child agent loop...`);
@@ -247,9 +261,11 @@ async function childCycle(
       let usedDelegation = false;
       if (childAddress) {
         const delegations = getDelegationsForChild(childAddress);
+        // Match by childAddr (ChildGovernor clone) — governanceContract stores the delegation
+        // target which is the ChildGovernor address, not the MockGovernor (governanceAddr)
         const matchingDelegation = delegations.find(
-          (d) => d.governanceContract.toLowerCase() === governanceAddr.toLowerCase()
-        );
+          (d) => d.governanceContract.toLowerCase() === childAddr.toLowerCase()
+        ) ?? delegations[0]; // fallback: use first available delegation for this child
 
         if (matchingDelegation) {
           try {
@@ -266,16 +282,20 @@ async function childCycle(
             console.log(`[Child:${childLabel}] Voted via DelegationManager redemption`);
           } catch (delegationErr: any) {
             console.log(
-              `[Child:${childLabel}] Delegation redemption failed: ${delegationErr?.message?.slice(0, 80)}`,
+              `[Child:${childLabel}] Delegation redemption failed: ${delegationErr?.message?.slice(0, 300)}`,
               `\n  Falling back to direct writeContract`
             );
           }
         }
       }
 
-      // Fallback: direct writeContract call using child's own wallet
+      // Fallback: direct writeContract call.
+      // On base-sepolia the DeleGator is now operator, so the parent EOA (authorized as
+      // `parent` in onlyAuthorized) is used. On celo-sepolia operator = child wallet still.
       if (!usedDelegation) {
-        hash = await childWalletClient.writeContract({
+        const fallbackChain = process.env.CHILD_CHAIN || "base-sepolia";
+        const fallbackWallet = fallbackChain === "celo-sepolia" ? childWalletClient : walletClient;
+        hash = await fallbackWallet.writeContract({
           address: childAddr,
           abi: ChildGovernorABI,
           functionName: "castVote",

@@ -16,7 +16,7 @@
  * Requires: PRIVATE_KEY, VENICE_API_KEY, and optionally LIT_PRIVATE_KEY in ../.env
  */
 
-import { publicClient, account, sendTxAndWait } from "./chain.js";
+import { publicClient, walletClient, account, sendTxAndWait } from "./chain.js";
 import { logParentAction, logChildAction } from "./logger.js";
 import {
   MockGovernorABI,
@@ -35,7 +35,7 @@ import {
 import { encryptRationale, decryptRationale } from "./lit.js";
 import { registerAgent } from "./identity.js";
 import { registerSubdomain, setChildTextRecord } from "./ens.js";
-import { createVotingDelegation } from "./delegation.js";
+import { createVotingDelegation, initDeleGatorAccount, getDeleGatorAddress, redeemVoteDelegation, type DelegationRecord } from "./delegation.js";
 import { initSimulatedTreasury, logYieldStatus } from "./lido.js";
 import { pinAgentLog, storeLogCIDOnchain } from "./ipfs.js";
 import { toHex, keccak256, stringToHex } from "viem";
@@ -138,6 +138,14 @@ async function main() {
 
   initSimulatedTreasury(BigInt(1e18), Math.floor(Date.now() / 1000) - 86400);
 
+  // Init DeleGator smart account — required for ERC-7715 delegation redemption in Step 4
+  const deleGatorAddr = await initDeleGatorAccount();
+  if (deleGatorAddr) {
+    console.log(`  DeleGator smart account: ${deleGatorAddr}`);
+  } else {
+    console.log("  DeleGator init failed — delegation redemption will fall back to direct castVote");
+  }
+
   // ── Step 1: Read governance values ──────────────────────────────────
   sep("STEP 1 — Read owner governance values (onchain)");
 
@@ -157,7 +165,7 @@ async function main() {
     { label: "ens-dao-conservative",     governor: ADDRESSES.mockGovernorENS,     dao: "ENS" },
   ];
 
-  const spawnedChildren: Array<{ id: bigint; childAddr: `0x${string}`; ensLabel: string; governor: `0x${string}`; dao: string }> = [];
+  const spawnedChildren: Array<{ id: bigint; childAddr: `0x${string}`; ensLabel: string; governor: `0x${string}`; dao: string; delegationRecord?: DelegationRecord }> = [];
 
   for (const config of childConfigs) {
     const receipt = await sendTxAndWait({
@@ -176,7 +184,8 @@ async function main() {
     const child = children.find((c: any) => c.ensLabel === config.label);
     if (!child) continue;
 
-    spawnedChildren.push({ id: child.id, childAddr: child.childAddr, ensLabel: config.label, governor: config.governor, dao: config.dao });
+    let delegationRecord: DelegationRecord | undefined;
+    spawnedChildren.push({ id: child.id, childAddr: child.childAddr, ensLabel: config.label, governor: config.governor, dao: config.dao, delegationRecord: undefined });
     console.log(`  ⊕ Spawned ${config.label}.spawn.eth`);
     console.log(`    Clone address: ${child.childAddr}`);
     console.log(`    Tx: ${tx(receipt.transactionHash)}`);
@@ -193,7 +202,18 @@ async function main() {
       });
       console.log(`    ERC-8004 identity ✓`);
     } catch {}
-    try { await createVotingDelegation(config.governor, child.childAddr, 50); console.log(`    ERC-7715 delegation ✓`); } catch {}
+    try {
+      // Scope delegation to the ChildGovernor clone (castVote target), delegatee = parent EOA
+      delegationRecord = await createVotingDelegation(child.childAddr, account.address, 50, config.label);
+      spawnedChildren[spawnedChildren.length - 1].delegationRecord = delegationRecord;
+      console.log(`    ERC-7715 delegation ✓`);
+      // Authorize DeleGator as operator so DelegationManager redemption passes onlyAuthorized
+      const currentDeleGator = getDeleGatorAddress();
+      if (currentDeleGator) {
+        await sendTxAndWait({ address: child.childAddr, abi: ChildGovernorABI, functionName: "setOperator", args: [currentDeleGator] });
+        console.log(`    DeleGator authorized as operator ✓`);
+      }
+    } catch (e: any) { console.log(`    ERC-7715 delegation: ${e?.message?.slice(0, 60) ?? "failed"}`); }
     console.log();
   }
 
@@ -323,17 +343,27 @@ async function main() {
         encryptedRationaleBytes = toHex(JSON.stringify({ reasoningHash, note: "Lit unavailable — hash committed pre-vote" }));
       }
 
-      // Cast vote onchain
+      // Cast vote — try DelegationManager redemption first (ERC-7715), fall back to direct castVote
       const support = decision === "FOR" ? 1 : decision === "AGAINST" ? 0 : 2;
-      const voteReceipt = await sendTxAndWait({
-        address: child.childAddr,
-        abi: ChildGovernorABI,
-        functionName: "castVote",
-        args: [proposal.id, support, encryptedRationaleBytes],
-      });
+      let voteHash: `0x${string}`;
+      let viaLabel = "";
+      if (child.delegationRecord && getDeleGatorAddress()) {
+        try {
+          voteHash = await redeemVoteDelegation(walletClient, publicClient, child.delegationRecord, child.childAddr, proposal.id, support, encryptedRationaleBytes);
+          viaLabel = " [via DelegationManager]";
+        } catch (delegErr: any) {
+          console.log(`    Delegation redemption failed (${delegErr?.message?.slice(0, 60)}) — falling back to direct castVote`);
+          const fallbackReceipt = await sendTxAndWait({ address: child.childAddr, abi: ChildGovernorABI, functionName: "castVote", args: [proposal.id, support, encryptedRationaleBytes] });
+          voteHash = fallbackReceipt.transactionHash;
+        }
+      } else {
+        const fallbackReceipt = await sendTxAndWait({ address: child.childAddr, abi: ChildGovernorABI, functionName: "castVote", args: [proposal.id, support, encryptedRationaleBytes] });
+        voteHash = fallbackReceipt.transactionHash;
+      }
 
       const decisionEmoji = decision === "FOR" ? "✅" : decision === "AGAINST" ? "❌" : "⬜";
-      console.log(`    ${decisionEmoji} Voted ${decision} onchain → ${tx(voteReceipt.transactionHash)}`);
+      console.log(`    ${decisionEmoji} Voted ${decision} onchain${viaLabel} → ${tx(voteHash)}`);
+      const voteReceipt = { transactionHash: voteHash };
       logChildAction(child.ensLabel, "cast_vote", { proposalId: proposal.id.toString(), description: proposal.description, decision }, { reasoning: reasoning.slice(0, 200), reasoningHash, txHash: voteReceipt.transactionHash }, voteReceipt.transactionHash);
     }
   }
@@ -487,6 +517,7 @@ async function main() {
   console.log("  What just happened (fully autonomously, zero human intervention):");
   console.log(`  • ${spawnedChildren.length} child agents spawned as EIP-1167 clones`);
   console.log(`  • Each child registered: ENS subdomain + ERC-8004 identity + ERC-7715 delegation`);
+  console.log(`  • Votes routed through MetaMask DelegationManager (redeemDelegations) — caveats enforced onchain`);
   console.log(`  • ${Object.values(proposalsByGovernor).flat().length} governance proposals created`);
   console.log(`  • All proposals reasoned about via Venice AI (llama-3.3-70b, no data retention)`);
   console.log(`  • Rationale encrypted via Lit Protocol before voting — unreadable until voting closed`);

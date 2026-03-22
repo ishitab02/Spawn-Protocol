@@ -113,13 +113,20 @@ export async function createVotingDelegation(
     caveats: [limitedCallsCaveat],
   });
 
-  // Sign the delegation offchain using the owner's private key
-  const signature = await signDelegation({
-    privateKey: process.env.PRIVATE_KEY as Hex,
-    delegation,
-    delegationManager: environment.DelegationManager as Address,
-    chainId: baseSepolia.id,
-  });
+  // Sign the delegation using the smart account's signDelegation method when available,
+  // which produces the correct EIP-712 signature format for HybridDeleGator's isValidSignature.
+  // Fall back to the raw private key signer for EOA delegators.
+  let signature: Hex;
+  if (parentSmartAccount?.signDelegation) {
+    signature = await parentSmartAccount.signDelegation({ delegation });
+  } else {
+    signature = await signDelegation({
+      privateKey: process.env.PRIVATE_KEY as Hex,
+      delegation,
+      delegationManager: environment.DelegationManager as Address,
+      chainId: baseSepolia.id,
+    });
+  }
 
   const signedDelegation: Delegation = {
     ...delegation,
@@ -430,6 +437,36 @@ export function getDelegationsForChild(
  */
 export function getAllDelegations(): DelegationRecord[] {
   return Array.from(activeDelegations.values());
+}
+
+// Secondary index: label → delegationHash, so child processes can look up by label
+const delegationByLabel = new Map<string, Hex>();
+
+/**
+ * Store a delegation record associated with a child label so it can be
+ * retrieved when forking the child process (see getDelegationByLabel).
+ */
+export function storeDelegationForChild(label: string, record: DelegationRecord): void {
+  delegationByLabel.set(label, record.delegationHash);
+  activeDelegations.set(record.delegationHash, record);
+}
+
+/**
+ * Get the delegation record for a given child label (used by swarm.ts before fork).
+ */
+export function getDelegationByLabel(label: string): DelegationRecord | undefined {
+  const hash = delegationByLabel.get(label);
+  if (!hash) return undefined;
+  return activeDelegations.get(hash);
+}
+
+/**
+ * Import a delegation record into the in-memory map.
+ * Called by child processes that receive delegation data via DELEGATION_DATA env var.
+ */
+export function importDelegation(record: DelegationRecord): void {
+  activeDelegations.set(record.delegationHash, record);
+  console.log(`[Delegation] Imported delegation ${record.delegationHash.slice(0, 18)}... for ${record.delegatee}`);
 }
 
 /**

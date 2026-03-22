@@ -243,6 +243,7 @@ The delegation lifecycle:
 - Three-caveat architecture: `AllowedTargetsEnforcer` (one governor) + `AllowedMethodsEnforcer` (`castVote` only) + `LimitedCallsEnforcer` (max votes)
 - **DeleGator smart account:** parent uses MetaMask's `toMetaMaskSmartAccount()` (Hybrid implementation) — [`0x1fa9c8...`](https://sepolia.basescan.org/address/0x1fa9c867439AF413DEE0629bB00215431057468e)
 - Sub-delegation chain: owner → DeleGator (parent smart account) → 9 children (each scoped to different governor)
+- **`redeemDelegations` fully working onchain:** child submits tx to DelegationManager, which verifies all 3 caveats then executes `castVote` as the DeleGator — `msg.sender` in `ChildGovernor` is the DeleGator, not the child wallet. Each ChildGovernor clone has `setOperator(deleGatorAddress)` called at spawn time so the DeleGator passes `onlyAuthorized`. Confirmed delegation votes: [`0x9753938a...`](https://sepolia.basescan.org/tx/0x9753938a31d8c52a9e517eb1093300414dd788a5fa332056773c8427033df5b5) [`0x7749ff2d...`](https://sepolia.basescan.org/tx/0x7749ff2d6e1bef0bebde363c8a73bd86a9ec990c3030aa4a5445d21e084c14d3)
 - Delegation hash stored as ENS text record (`erc7715.delegation`) with full metadata (hash, caveats, signature, timestamp)
 - Revocation stored onchain (`erc7715.delegation.revoked`) with reason and timestamp
 - Delegation creation tx visible on BaseScan (zero-value tx with delegation hash as calldata)

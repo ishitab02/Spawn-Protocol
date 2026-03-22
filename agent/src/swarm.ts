@@ -26,7 +26,7 @@ import type { StructuredTerminationReport } from "./venice.js";
 import { registerSubdomain, deregisterSubdomain, setAgentMetadata, resolveChild, setChildTextRecord } from "./ens.js";
 import { deriveChildWallet } from "./wallet-manager.js";
 import { registerAgent, updateAgentMetadata } from "./identity.js";
-import { createVotingDelegation, revokeAllForChild, initDeleGatorAccount } from "./delegation.js";
+import { createVotingDelegation, revokeAllForChild, initDeleGatorAccount, storeDelegationForChild, getDelegationByLabel, getDeleGatorAddress, type DelegationRecord } from "./delegation.js";
 import { logYieldStatus, initSimulatedTreasury } from "./lido.js";
 import { logParentAction, logChildAction } from "./logger.js";
 import { pinAgentLog, storeLogCIDOnchain, pinTerminationMemory } from "./ipfs.js";
@@ -280,9 +280,25 @@ async function initChain(config: ChainConfig) {
       try { await registerAgent(`spawn://${childName}.spawn.eth`, { agentType: "child", assignedDAO: gov.name, governanceContract: gov.addr, ensName: `${childName}.spawn.eth`, alignmentScore: 100, capabilities: ["vote", "reason", perspective.suffix], createdAt: Date.now() }); } catch {}
 
       // MetaMask delegation — ERC-7715 scoped voting authority with onchain proof
+      // Scope to the ChildGovernor clone address (not MockGovernor), since the child
+      // calls castVote on ChildGovernor. Extract childAddr from the ChildSpawned event.
       try {
-        const delegationRecord = await createVotingDelegation(gov.addr, childWallet.address as `0x${string}`, 100, childName);
-        console.log(`[${config.name}] Delegation created for ${childName}: hash=${delegationRecord.delegationHash.slice(0, 18)}...`);
+        const { parseEventLogs } = await import("viem");
+        const spawnLogs = parseEventLogs({ abi: SpawnFactoryABI, logs: receipt.logs, eventName: "ChildSpawned" });
+        const spawnedChildAddr = ((spawnLogs[0] as any)?.args?.childAddr) as `0x${string}` | undefined;
+        const delegationTarget = spawnedChildAddr ?? gov.addr; // fallback to gov.addr if parse fails
+        const delegationRecord = await createVotingDelegation(delegationTarget, childWallet.address as `0x${string}`, 100, childName);
+        // Store by label so spawnChildProcess can pass it to the child via env var
+        storeDelegationForChild(childName, delegationRecord);
+        // Authorize DeleGator as operator so DelegationManager redemptions pass onlyAuthorized
+        const deleGatorAddrInit = getDeleGatorAddress();
+        if (deleGatorAddrInit && spawnedChildAddr) {
+          try {
+            await config.sendTx({ address: spawnedChildAddr, abi: ChildGovernorABI, functionName: "setOperator", args: [deleGatorAddrInit] });
+            console.log(`[${config.name}] DeleGator authorized as operator for ${childName}`);
+          } catch (opErr: any) { console.log(`[${config.name}] setOperator for ${childName}: ${opErr?.message?.slice(0, 60)}`); }
+        }
+        console.log(`[${config.name}] Delegation created for ${childName}: hash=${delegationRecord.delegationHash.slice(0, 18)}... (target: ${delegationTarget.slice(0, 10)}...)`);
         logParentAction("delegation_granted", {
           chain: config.name, child: childName, dao: gov.name,
           delegatee: childWallet.address, maxVotes: 100,
@@ -360,12 +376,41 @@ async function initChain(config: ChainConfig) {
         } catch {}
       }
 
-      spawnChildProcess(child.childAddr, child.governance, child.ensLabel, config.treasury, childKey, config.name);
+      // Create (or recreate) a delegation for recovered children so the child
+      // process receives it via DELEGATION_DATA env var and can route votes
+      // through the DeleGator rather than calling the governor directly.
+      let recoveredDelegation: DelegationRecord | undefined;
+      if (childKey) {
+        try {
+          const { privateKeyToAccount } = await import("viem/accounts");
+          const childAccount = privateKeyToAccount(childKey);
+          recoveredDelegation = await createVotingDelegation(
+            child.childAddr as `0x${string}`,  // scope to ChildGovernor clone, not MockGovernor
+            childAccount.address as `0x${string}`,
+            100,
+            child.ensLabel
+          );
+          storeDelegationForChild(child.ensLabel, recoveredDelegation);
+          // Authorize DeleGator as operator so DelegationManager can call castVote on this clone
+          const deleGatorAddrRecover = getDeleGatorAddress();
+          if (deleGatorAddrRecover) {
+            try {
+              await config.sendTx({ address: child.childAddr as `0x${string}`, abi: ChildGovernorABI, functionName: "setOperator", args: [deleGatorAddrRecover] });
+              console.log(`  ${child.ensLabel}: DeleGator authorized as operator`);
+            } catch { /* non-fatal — delegation fallback still works via parent EOA */ }
+          }
+          console.log(`  ${child.ensLabel}: delegation recreated (hash=${recoveredDelegation.delegationHash.slice(0, 18)}...)`);
+        } catch (delErr: any) {
+          console.log(`  ${child.ensLabel}: delegation recreation failed (${delErr?.message?.slice(0, 60)})`);
+        }
+      }
+
+      spawnChildProcess(child.childAddr, child.governance, child.ensLabel, config.treasury, childKey, config.name, undefined, recoveredDelegation);
     }
   }
 }
 
-function spawnChildProcess(childAddr: string, governanceAddr: string, label: string, treasuryAddr: string, childPrivateKey?: `0x${string}`, chainName?: string, lineageContext?: string) {
+function spawnChildProcess(childAddr: string, governanceAddr: string, label: string, treasuryAddr: string, childPrivateKey?: `0x${string}`, chainName?: string, lineageContext?: string, delegationData?: DelegationRecord) {
   const childScript = join(__dirname, "spawn-child.ts");
   try {
     // Pass unique private key + perspective via environment
@@ -385,6 +430,13 @@ function spawnChildProcess(childAddr: string, governanceAddr: string, label: str
     // Append lineage context from terminated predecessors
     if (lineageContext) {
       childEnv.CHILD_PERSPECTIVE = (childEnv.CHILD_PERSPECTIVE || '') + lineageContext;
+    }
+    // Pass delegation record to child process so it can redeem via DelegationManager
+    // (in-memory activeDelegations map is isolated per-process — must serialize over env)
+    const delegation = delegationData ?? getDelegationByLabel(label);
+    if (delegation) {
+      childEnv.DELEGATION_DATA = JSON.stringify(delegation);
+      console.log(`  [Delegation] Passing delegation to child ${label}: ${delegation.delegationHash.slice(0, 18)}...`);
     }
 
     const child = fork(childScript, [childAddr, governanceAddr, label, treasuryAddr], {
@@ -652,10 +704,18 @@ async function evaluateChainChildren(config: ChainConfig) {
             })) as any[];
             const respawned = newChildren.find((c: any) => c.ensLabel === newLabel);
             if (respawned) {
-              spawnChildProcess(respawned.childAddr, respawned.governance, newLabel, config.treasury, newChildWallet.privateKey, config.name, lineageContext);
+              // Create fresh ERC-7715 delegation BEFORE spawning so child receives it via env var
+              let respawnDelegation: DelegationRecord | undefined;
+              try {
+                respawnDelegation = await createVotingDelegation(respawned.childAddr as `0x${string}`, newChildWallet.address as `0x${string}`, 100, newLabel);
+                storeDelegationForChild(newLabel, respawnDelegation);
+                const deleGatorAddrRespawn = getDeleGatorAddress();
+                if (deleGatorAddrRespawn) {
+                  try { await config.sendTx({ address: respawned.childAddr as `0x${string}`, abi: ChildGovernorABI, functionName: "setOperator", args: [deleGatorAddrRespawn] }); } catch {}
+                }
+              } catch (delErr: any) { console.log(`  [Delegation] Creation failed for ${newLabel}: ${delErr?.message?.slice(0, 60)}`); }
+              spawnChildProcess(respawned.childAddr, respawned.governance, newLabel, config.treasury, newChildWallet.privateKey, config.name, lineageContext, respawnDelegation);
               console.log(`  ↻ Child process launched for ${newLabel}`);
-              // Create fresh ERC-7715 delegation for the respawned child
-              try { await createVotingDelegation(child.governance, newChildWallet.address as `0x${string}`, 100, newLabel); } catch (delErr: any) { console.log(`  [Delegation] Creation failed for ${newLabel}: ${delErr?.message?.slice(0, 60)}`); }
               // Copy lineage memory CID to the NEW child's ENS label so dashboard can read it
               if (lastMemoryCid) {
                 try {
@@ -773,9 +833,18 @@ async function evaluateChainChildren(config: ChainConfig) {
             })) as any[];
             const respawned = newChildren.find((c: any) => c.ensLabel === newLabel);
             if (respawned) {
-              spawnChildProcess(respawned.childAddr, respawned.governance, newLabel, config.treasury, newChildWallet.privateKey, config.name, lineageContextFallback);
+              // Create fresh ERC-7715 delegation BEFORE spawning so child receives it via env var
+              let respawnDelegationFallback: DelegationRecord | undefined;
+              try {
+                respawnDelegationFallback = await createVotingDelegation(respawned.childAddr as `0x${string}`, newChildWallet.address as `0x${string}`, 100, newLabel);
+                storeDelegationForChild(newLabel, respawnDelegationFallback);
+                const deleGatorAddrFallback = getDeleGatorAddress();
+                if (deleGatorAddrFallback) {
+                  try { await config.sendTx({ address: respawned.childAddr as `0x${string}`, abi: ChildGovernorABI, functionName: "setOperator", args: [deleGatorAddrFallback] }); } catch {}
+                }
+              } catch (delErr: any) { console.log(`  [Delegation] Creation failed for ${newLabel}: ${delErr?.message?.slice(0, 60)}`); }
+              spawnChildProcess(respawned.childAddr, respawned.governance, newLabel, config.treasury, newChildWallet.privateKey, config.name, lineageContextFallback, respawnDelegationFallback);
               console.log(`  ↻ Respawned ${newLabel} with process`);
-              try { await createVotingDelegation(child.governance, newChildWallet.address as `0x${string}`, 100, newLabel); } catch (delErr: any) { console.log(`  [Delegation] Creation failed for ${newLabel}: ${delErr?.message?.slice(0, 60)}`); }
             }
             try { logParentAction("respawn_child", { chain: config.name, newLabel, governance: child.governance, newWallet: newChildWallet.address }, {}); } catch {}
           } catch (spawnErr: any) {
@@ -861,7 +930,17 @@ async function dynamicScaling(config: ChainConfig) {
         })) as any[];
         const newChild = freshChildren.find((c: any) => c.ensLabel === childName);
         if (newChild) {
-          spawnChildProcess(newChild.childAddr, gov.addr, childName, config.treasury, childWallet.privateKey, config.name);
+          // Create delegation BEFORE fork so it can be passed via env var
+          let scalingDelegation: DelegationRecord | undefined;
+          try {
+            scalingDelegation = await createVotingDelegation(newChild.childAddr as `0x${string}`, childWallet.address as `0x${string}`, 100, childName);
+            storeDelegationForChild(childName, scalingDelegation);
+            const deleGatorAddrScaling = getDeleGatorAddress();
+            if (deleGatorAddrScaling) {
+              try { await config.sendTx({ address: newChild.childAddr as `0x${string}`, abi: ChildGovernorABI, functionName: "setOperator", args: [deleGatorAddrScaling] }); } catch {}
+            }
+          } catch (delErr: any) { console.log(`  [Delegation] Creation failed for ${childName}: ${(delErr as any)?.message?.slice(0, 60)}`); }
+          spawnChildProcess(newChild.childAddr, gov.addr, childName, config.treasury, childWallet.privateKey, config.name, undefined, scalingDelegation);
         }
 
         console.log(`[Scaling] Spawned ${childName} (wallet: ${childWallet.address})`);
