@@ -99,7 +99,7 @@ export default function LeaderboardPage() {
 
                 return (
                   <tr
-                    key={agent.ensLabel}
+                    key={agent.childAddr}
                     className={`border-t border-gray-800/60 transition-colors ${
                       idx === 0
                         ? "bg-yellow-400/5"

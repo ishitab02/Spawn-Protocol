@@ -12,7 +12,7 @@
 
 import { writeFileSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
-import { pinAgentLog } from "./ipfs.js";
+import { pinAgentLog, storeLogCIDOnchain } from "./ipfs.js";
 
 const LOG_PATH = join(process.cwd(), "..", "agent_log.json");
 
@@ -233,12 +233,17 @@ export function logAction(entry: Omit<LogEntry, "timestamp">) {
   logEntryCount++;
   if (logEntryCount % 10 === 0) {
     pinAgentLog()
-      .then((cid) => {
+      .then(async (cid) => {
         if (log) {
           (log.metrics as any).latestIPFSCid = cid;
           persist(log);
         }
         console.log(`[IPFS] Agent log pinned (entry #${logEntryCount}): ${cid}`);
+        try {
+          await storeLogCIDOnchain(cid);
+        } catch (err: any) {
+          console.warn(`[IPFS] Failed to store CID onchain: ${err?.message?.slice(0, 80) || "unknown"}`);
+        }
       })
       .catch((err) => {
         console.warn(`[IPFS] Background pin failed: ${err?.message?.slice(0, 80) || "unknown"}`);

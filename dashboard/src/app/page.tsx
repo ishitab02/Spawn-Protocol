@@ -138,7 +138,8 @@ export default function SwarmPage() {
             </a>
           )}
           {(() => {
-            const activeDels = Array.from(delegationHashes.keys()).filter(k => !k.includes(":revoked")).length;
+            const activeLabels = new Set(children.filter(c => c.active).map(c => c.ensLabel));
+            const activeDels = Array.from(delegationHashes.keys()).filter(k => !k.includes(":revoked") && activeLabels.has(k)).length;
             const revokedDels = Array.from(delegationHashes.keys()).filter(k => k.includes(":revoked")).length;
             return (
               <div className="flex items-center gap-2 border border-orange-400/30 bg-orange-400/5 rounded-lg px-4 py-2">

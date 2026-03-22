@@ -25,136 +25,121 @@ export interface TimelineEvent {
 }
 
 
+// Contracts deployed at block 39086990 on Base Sepolia (from broadcast/DeployMultiDAO.s.sol)
+const DEPLOY_BLOCK = BigInt(39086990);
+const CHUNK = BigInt(50000); // publicnode max
+
 export function useTimeline() {
   const { client } = useChainContext();
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Cache block timestamps across polls
+  // Persist state across polls to avoid re-fetching history
   const blockTimestampCache = useRef<Map<bigint, bigint>>(new Map());
+  const eventCache = useRef<Map<string, TimelineEvent>>(new Map());
+  const lastFetchedBlock = useRef<bigint | null>(null);
+  // Track all child addresses ever seen so polling can fetch their new events too
+  const knownChildAddresses = useRef<Set<`0x${string}`>>(new Set());
+
+  // Fetch logs for a block range, splitting into CHUNK-sized parallel requests
+  const getLogsInRange = useCallback(async (
+    params: Omit<Parameters<typeof client.getLogs>[0], "fromBlock" | "toBlock">,
+    from: bigint,
+    to: bigint,
+  ) => {
+    const chunks: Array<[bigint, bigint]> = [];
+    let start = from;
+    while (start <= to) {
+      const end = start + CHUNK - BigInt(1) < to ? start + CHUNK - BigInt(1) : to;
+      chunks.push([start, end]);
+      start = end + BigInt(1);
+    }
+    const results = await Promise.all(
+      chunks.map(([f, t]) => client.getLogs({ ...params, fromBlock: f, toBlock: t }))
+    );
+    return results.flat();
+  }, [client]);
 
   const fetchData = useCallback(async () => {
     const contracts = CONTRACTS;
     try {
       const currentBlock = await client.getBlockNumber();
-      const startBlock = currentBlock > BigInt(9999) ? currentBlock - BigInt(9999) : BigInt(0);
+      const isInitial = lastFetchedBlock.current === null;
+      const fromBlock = isInitial ? DEPLOY_BLOCK : lastFetchedBlock.current! + BigInt(1);
 
-      // Fetch ALL logs in parallel — single batch of getLogs calls
-      // Reuse ChildSpawned results for both event list AND child address extraction
-      const [
-        spawnedLogs,
-        terminatedLogs,
-        reallocatedLogs,
-        valuesLogs,
-        depositLogs,
-      ] = await Promise.all([
-        client.getLogs({
-          address: contracts.SpawnFactory.address,
-          event: {
-            type: "event",
-            name: "ChildSpawned",
-            inputs: [
+      // Nothing new to fetch on subsequent polls
+      if (!isInitial && fromBlock > currentBlock) return;
+
+      // Fetch factory + treasury events for the relevant range
+      const [spawnedLogs, terminatedLogs, reallocatedLogs, valuesLogs, depositLogs] =
+        await Promise.all([
+          getLogsInRange({
+            address: contracts.SpawnFactory.address,
+            event: { type: "event", name: "ChildSpawned", inputs: [
               { name: "childId", type: "uint256", indexed: true },
               { name: "childAddr", type: "address", indexed: false },
               { name: "governance", type: "address", indexed: false },
               { name: "budget", type: "uint256", indexed: false },
-            ],
-          },
-          fromBlock: startBlock,
-          toBlock: "latest",
-        }),
-        client.getLogs({
-          address: contracts.SpawnFactory.address,
-          event: {
-            type: "event",
-            name: "ChildTerminated",
-            inputs: [
+            ]},
+          }, fromBlock, currentBlock),
+          getLogsInRange({
+            address: contracts.SpawnFactory.address,
+            event: { type: "event", name: "ChildTerminated", inputs: [
               { name: "childId", type: "uint256", indexed: true },
               { name: "childAddr", type: "address", indexed: false },
               { name: "fundsReturned", type: "uint256", indexed: false },
-            ],
-          },
-          fromBlock: startBlock,
-          toBlock: "latest",
-        }),
-        client.getLogs({
-          address: contracts.SpawnFactory.address,
-          event: {
-            type: "event",
-            name: "FundsReallocated",
-            inputs: [
+            ]},
+          }, fromBlock, currentBlock),
+          getLogsInRange({
+            address: contracts.SpawnFactory.address,
+            event: { type: "event", name: "FundsReallocated", inputs: [
               { name: "fromId", type: "uint256", indexed: true },
               { name: "toId", type: "uint256", indexed: true },
               { name: "amount", type: "uint256", indexed: false },
-            ],
-          },
-          fromBlock: startBlock,
-          toBlock: "latest",
-        }),
-        client.getLogs({
-          address: contracts.ParentTreasury.address,
-          event: {
-            type: "event",
-            name: "ValuesUpdated",
-            inputs: [{ name: "values", type: "string", indexed: false }],
-          },
-          fromBlock: startBlock,
-          toBlock: "latest",
-        }),
-        client.getLogs({
-          address: contracts.ParentTreasury.address,
-          event: {
-            type: "event",
-            name: "Deposited",
-            inputs: [
+            ]},
+          }, fromBlock, currentBlock),
+          getLogsInRange({
+            address: contracts.ParentTreasury.address,
+            event: { type: "event", name: "ValuesUpdated", inputs: [
+              { name: "values", type: "string", indexed: false },
+            ]},
+          }, fromBlock, currentBlock),
+          getLogsInRange({
+            address: contracts.ParentTreasury.address,
+            event: { type: "event", name: "Deposited", inputs: [
               { name: "from", type: "address", indexed: true },
               { name: "amount", type: "uint256", indexed: false },
-            ],
-          },
-          fromBlock: startBlock,
-          toBlock: "latest",
-        }),
-      ]);
+            ]},
+          }, fromBlock, currentBlock),
+        ]);
 
-      // Extract child addresses from the spawned logs we already fetched (no duplicate RPC)
-      const childAddresses = [
-        ...new Set(
-          spawnedLogs
-            .map((l) => (l.args as any)?.childAddr)
-            .filter(Boolean) as `0x${string}`[]
-        ),
-      ];
+      // Register any newly discovered child addresses
+      for (const log of spawnedLogs) {
+        const addr = (log.args as any)?.childAddr as `0x${string}` | undefined;
+        if (addr) knownChildAddresses.current.add(addr);
+      }
 
-      // Fetch VoteCast + AlignmentUpdated from all children in parallel
+      // For child events: initial load fetches full history; polls only fetch new range
+      const childFrom = isInitial ? DEPLOY_BLOCK : fromBlock;
       const childLogResults = await Promise.all(
-        childAddresses.map(async (addr) => {
+        [...knownChildAddresses.current].map(async (addr) => {
           try {
             const [votes, aligns] = await Promise.all([
-              client.getLogs({
+              getLogsInRange({
                 address: addr,
-                event: {
-                  type: "event",
-                  name: "VoteCast",
-                  inputs: [
-                    { name: "proposalId", type: "uint256", indexed: true },
-                    { name: "support", type: "uint8", indexed: false },
-                    { name: "encryptedRationale", type: "bytes", indexed: false },
-                  ],
-                },
-                fromBlock: startBlock,
-                toBlock: "latest",
-              }),
-              client.getLogs({
+                event: { type: "event", name: "VoteCast", inputs: [
+                  { name: "proposalId", type: "uint256", indexed: true },
+                  { name: "support", type: "uint8", indexed: false },
+                  { name: "encryptedRationale", type: "bytes", indexed: false },
+                ]},
+              }, childFrom, currentBlock),
+              getLogsInRange({
                 address: addr,
-                event: {
-                  type: "event",
-                  name: "AlignmentUpdated",
-                  inputs: [{ name: "newScore", type: "uint256", indexed: false }],
-                },
-                fromBlock: startBlock,
-                toBlock: "latest",
-              }),
+                event: { type: "event", name: "AlignmentUpdated", inputs: [
+                  { name: "newScore", type: "uint256", indexed: false },
+                ]},
+              }, childFrom, currentBlock),
             ]);
             return { votes: votes as any[], aligns: aligns as any[] };
           } catch {
@@ -165,86 +150,67 @@ export function useTimeline() {
       const voteCastLogs = childLogResults.flatMap((r) => r.votes);
       const alignmentLogs = childLogResults.flatMap((r) => r.aligns);
 
-      const allEvents: TimelineEvent[] = [
+      // Build new events and merge into cache (deduplicates by id)
+      const newEvents: TimelineEvent[] = [
         ...spawnedLogs.map((log) => ({
           id: `spawned-${log.transactionHash}-${log.logIndex}`,
           type: "ChildSpawned" as EventType,
           blockNumber: log.blockNumber ?? BigInt(0),
           transactionHash: log.transactionHash ?? ("0x" as `0x${string}`),
-          data: {
-            childId: log.args?.childId?.toString(),
-            childAddr: log.args?.childAddr,
-            governance: log.args?.governance,
-            budget: log.args?.budget?.toString(),
-          },
+          data: { childId: (log.args as any)?.childId?.toString(), childAddr: (log.args as any)?.childAddr, governance: (log.args as any)?.governance, budget: (log.args as any)?.budget?.toString() },
         })),
         ...terminatedLogs.map((log) => ({
           id: `terminated-${log.transactionHash}-${log.logIndex}`,
           type: "ChildTerminated" as EventType,
           blockNumber: log.blockNumber ?? BigInt(0),
           transactionHash: log.transactionHash ?? ("0x" as `0x${string}`),
-          data: {
-            childId: log.args?.childId?.toString(),
-            childAddr: log.args?.childAddr,
-            fundsReturned: log.args?.fundsReturned?.toString(),
-          },
+          data: { childId: (log.args as any)?.childId?.toString(), childAddr: (log.args as any)?.childAddr, fundsReturned: (log.args as any)?.fundsReturned?.toString() },
         })),
         ...reallocatedLogs.map((log) => ({
           id: `reallocated-${log.transactionHash}-${log.logIndex}`,
           type: "FundsReallocated" as EventType,
           blockNumber: log.blockNumber ?? BigInt(0),
           transactionHash: log.transactionHash ?? ("0x" as `0x${string}`),
-          data: {
-            fromId: log.args?.fromId?.toString(),
-            toId: log.args?.toId?.toString(),
-            amount: log.args?.amount?.toString(),
-          },
+          data: { fromId: (log.args as any)?.fromId?.toString(), toId: (log.args as any)?.toId?.toString(), amount: (log.args as any)?.amount?.toString() },
         })),
         ...valuesLogs.map((log) => ({
           id: `values-${log.transactionHash}-${log.logIndex}`,
           type: "ValuesUpdated" as EventType,
           blockNumber: log.blockNumber ?? BigInt(0),
           transactionHash: log.transactionHash ?? ("0x" as `0x${string}`),
-          data: {
-            values: log.args?.values,
-          },
+          data: { values: (log.args as any)?.values },
         })),
         ...depositLogs.map((log) => ({
           id: `deposit-${log.transactionHash}-${log.logIndex}`,
           type: "Deposited" as EventType,
           blockNumber: log.blockNumber ?? BigInt(0),
           transactionHash: log.transactionHash ?? ("0x" as `0x${string}`),
-          data: {
-            from: log.args?.from,
-            amount: log.args?.amount?.toString(),
-          },
+          data: { from: (log.args as any)?.from, amount: (log.args as any)?.amount?.toString() },
         })),
         ...voteCastLogs.map((log: any) => ({
           id: `vote-${log.transactionHash}-${log.logIndex}`,
           type: "VoteCast" as EventType,
           blockNumber: log.blockNumber ?? BigInt(0),
           transactionHash: log.transactionHash ?? ("0x" as `0x${string}`),
-          data: {
-            childAddr: log.address,
-            proposalId: log.args?.proposalId?.toString(),
-            support: Number(log.args?.support ?? 0),
-          },
+          data: { childAddr: log.address, proposalId: log.args?.proposalId?.toString(), support: Number(log.args?.support ?? 0) },
         })),
         ...alignmentLogs.map((log: any) => ({
           id: `alignment-${log.transactionHash}-${log.logIndex}`,
           type: "AlignmentUpdated" as EventType,
           blockNumber: log.blockNumber ?? BigInt(0),
           transactionHash: log.transactionHash ?? ("0x" as `0x${string}`),
-          data: {
-            childAddr: log.address,
-            newScore: log.args?.newScore?.toString(),
-          },
+          data: { childAddr: log.address, newScore: log.args?.newScore?.toString() },
         })),
       ];
 
-      // Fetch timestamps only for blocks we haven't cached yet
-      const uniqueBlocks = [...new Set(allEvents.map((e) => e.blockNumber))];
-      const uncachedBlocks = uniqueBlocks.filter((bn) => !blockTimestampCache.current.has(bn)).slice(0, 20);
+      for (const e of newEvents) eventCache.current.set(e.id, e);
+      lastFetchedBlock.current = currentBlock;
+
+      // Fetch timestamps only for uncached blocks (cap at 20 per cycle)
+      const allCached = [...eventCache.current.values()];
+      const uncachedBlocks = [...new Set(allCached.map((e) => e.blockNumber))]
+        .filter((bn) => !blockTimestampCache.current.has(bn))
+        .slice(0, 20);
 
       if (uncachedBlocks.length > 0) {
         await Promise.all(
@@ -257,29 +223,28 @@ export function useTimeline() {
         );
       }
 
-      // Attach timestamps from cache
-      for (const event of allEvents) {
+      for (const event of allCached) {
         event.timestamp = blockTimestampCache.current.get(event.blockNumber);
       }
 
-      allEvents.sort((a, b) => {
-        if (b.blockNumber > a.blockNumber) return 1;
-        if (b.blockNumber < a.blockNumber) return -1;
-        return 0;
-      });
+      const sorted = [...allCached].sort((a, b) =>
+        b.blockNumber > a.blockNumber ? 1 : b.blockNumber < a.blockNumber ? -1 : 0
+      );
 
-      setEvents(allEvents);
+      setEvents(sorted);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch timeline");
     } finally {
       setLoading(false);
     }
-  }, [client]);
+  }, [client, getLogsInRange]);
 
   useEffect(() => {
     setLoading(true);
-    setEvents([]);
+    eventCache.current.clear();
+    lastFetchedBlock.current = null;
+    knownChildAddresses.current.clear();
     fetchData();
     const interval = setInterval(fetchData, 15000);
     return () => clearInterval(interval);

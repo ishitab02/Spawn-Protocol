@@ -77,13 +77,23 @@ export async function pinToIPFS(data: any): Promise<string> {
 }
 
 /**
- * Read agent_log.json from disk and pin it to IPFS.
- * Returns the CID on success.
+ * Read agent_log.json from disk, trim to the last 500 executionLogs entries,
+ * and pin it to IPFS. Keeps the pinned payload small enough for free-tier
+ * storage limits while giving the dashboard recent history.
+ * The full log is always preserved locally and on GitHub.
  */
+const IPFS_MAX_ENTRIES = 500;
+
 export async function pinAgentLog(): Promise<string> {
   const raw = readFileSync(LOG_PATH, "utf-8");
   const logData = JSON.parse(raw);
-  const cid = await pinToIPFS(logData);
+  const trimmed = {
+    ...logData,
+    executionLogs: (logData.executionLogs ?? []).slice(-IPFS_MAX_ENTRIES),
+    entries: (logData.entries ?? []).slice(-IPFS_MAX_ENTRIES),
+    _ipfsNote: `Showing last ${IPFS_MAX_ENTRIES} entries. Full log: https://raw.githubusercontent.com/PoulavBhowmick03/Spawn-Protocol/main/agent_log.json`,
+  };
+  const cid = await pinToIPFS(trimmed);
   return cid;
 }
 
