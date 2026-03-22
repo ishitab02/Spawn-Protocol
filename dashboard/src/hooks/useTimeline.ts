@@ -141,17 +141,17 @@ export function useTimeline() {
             { name: "reason", type: "string", indexed: false },
           ]},
         }, childFrom, currentBlock).catch(() => [] as any[]),
-        isInitial ? Promise.resolve([] as any[]) : getLogsInRange({
+        getLogsInRange({
           event: { type: "event", name: "AlignmentUpdated", inputs: [
             { name: "newScore", type: "uint256", indexed: false },
           ]},
-        }, fromBlock, currentBlock).catch(() => [] as any[]),
-        isInitial ? Promise.resolve([] as any[]) : getLogsInRange({
+        }, childFrom, currentBlock).catch(() => [] as any[]),
+        getLogsInRange({
           event: { type: "event", name: "RationaleRevealed", inputs: [
             { name: "proposalId", type: "uint256", indexed: true },
             { name: "decryptedRationale", type: "bytes", indexed: false },
           ]},
-        }, fromBlock, currentBlock).catch(() => [] as any[]),
+        }, childFrom, currentBlock).catch(() => [] as any[]),
       ]);
       const voteCastLogs = voteLogs as any[];
       const alignmentLogsFiltered = (alignmentLogs as any[]).filter((log) => knownSet.has((log.address as string)?.toLowerCase()));

@@ -91,13 +91,14 @@ export default function SwarmPage() {
         owners.forEach((owner, idx) => {
           if (owner) allNull = false;
           if (!owner || (owner as string).toLowerCase() !== ERC8004_DEPLOYER) return;
-          let rawUri = uris[idx] as string | null;
+          const rawUri = uris[idx] as string | null;
           if (!rawUri) return;
           // tokenURI may be base64-encoded JSON: data:application/json;base64,...
-          if (rawUri.startsWith("data:application/json;base64,")) {
-            try { rawUri = JSON.parse(atob(rawUri.slice(29))).name || rawUri; } catch {}
+          let uri = rawUri;
+          if (uri.startsWith("data:application/json;base64,")) {
+            try { uri = JSON.parse(atob(uri.slice(29))).name || uri; } catch {}
           }
-          const match = rawUri.match(/^spawn:\/\/([^.?]+)\.spawn\.eth/);
+          const match = uri.match(/^spawn:\/\/([^.?]+)\.spawn\.eth/);
           if (!match) return;
           const label = match[1].toLowerCase();
           const addr = labelToAddr.get(label);
