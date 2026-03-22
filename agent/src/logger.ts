@@ -32,6 +32,7 @@ interface ExecutionLogEntry {
   reasoningProvider?: string;
   reasoningModel?: string;
   rationaleEncrypted?: boolean;
+  litEncrypted?: boolean;
   erc8004AgentId?: number;
   uri?: string;
   ensLabel?: string;
@@ -117,6 +118,12 @@ const DEFAULT_METRICS: Metrics = {
 let log: AgentLog | null = null;
 let logEntryCount = 0;
 
+// Track entries added THIS PROCESS session so persist() can append-only to disk.
+// This prevents the multi-process write race where one child's full in-memory copy
+// overwrites another child's newer entries.
+const sessionEntries: LogEntry[] = [];
+const sessionExecEntries: ExecutionLogEntry[] = [];
+
 function initLog(): AgentLog {
   if (log) return log;
 
@@ -168,7 +175,37 @@ function inferPhase(action: string): string {
 
 function persist(l: AgentLog) {
   try {
-    writeFileSync(LOG_PATH, JSON.stringify(l, null, 2));
+    // Read-merge-write: always read current disk state and append only our session's
+    // new entries. This prevents multi-process races where 11 child processes
+    // overwrite each other's in-memory copies when flushing to the same JSON file.
+    let base: AgentLog = l;
+    if (existsSync(LOG_PATH)) {
+      try {
+        const disk = JSON.parse(readFileSync(LOG_PATH, "utf-8")) as AgentLog;
+        // Build key sets to avoid re-appending entries already on disk
+        const diskEntryKeys = new Set(
+          (disk.entries ?? []).map((e: LogEntry) => `${e.timestamp}|${e.agentId}|${e.action}`)
+        );
+        const diskExecKeys = new Set(
+          (disk.executionLogs ?? []).map((e: ExecutionLogEntry) => `${e.timestamp}|${e.action}`)
+        );
+        const newEntries = sessionEntries.filter(
+          (e) => !diskEntryKeys.has(`${e.timestamp}|${e.agentId}|${e.action}`)
+        );
+        const newExec = sessionExecEntries.filter(
+          (e) => !diskExecKeys.has(`${e.timestamp}|${e.action}`)
+        );
+        base = {
+          ...disk,
+          entries: [...(disk.entries ?? []), ...newEntries],
+          executionLogs: [...(disk.executionLogs ?? []), ...newExec],
+          metrics: l.metrics, // always use latest metrics from this process
+        };
+      } catch {
+        // disk read/parse failed — fall back to full in-memory write
+      }
+    }
+    writeFileSync(LOG_PATH, JSON.stringify(base, null, 2));
   } catch (err) {
     // Don't crash the agent if logging fails
     console.warn("[Logger] Failed to write log:", err);
@@ -184,7 +221,9 @@ export function logAction(entry: Omit<LogEntry, "timestamp">) {
   const timestamp = new Date().toISOString();
 
   // Append to runtime entries[]
-  l.entries.push({ ...entry, timestamp });
+  const fullEntry: LogEntry = { ...entry, timestamp };
+  l.entries.push(fullEntry);
+  sessionEntries.push(fullEntry); // track for merge-safe persist
 
   // Also append to executionLogs[] in the dashboard format
   const execEntry: ExecutionLogEntry = {
@@ -212,10 +251,13 @@ export function logAction(entry: Omit<LogEntry, "timestamp">) {
   }
 
   if (/vote|cast/i.test(entry.action)) {
-    execEntry.rationaleEncrypted = true;
+    const litFlag = entry.inputs?.litEncrypted;
+    execEntry.rationaleEncrypted = litFlag === true ? true : litFlag === false ? false : true;
+    execEntry.litEncrypted = litFlag === true;
   }
 
   l.executionLogs.push(execEntry);
+  sessionExecEntries.push(execEntry); // track for merge-safe persist
 
   // Update rolling metrics
   l.metrics.totalOnchainTransactions++;

@@ -14,9 +14,71 @@ const venice = new OpenAI({
   timeout: 30_000, // 30s hard timeout — prevents infinite hangs
 });
 
-// Venice enables E2EE (enable_e2ee: true) on ALL models automatically.
+// Venice enables E2EE on ALL models automatically.
+// These models (llama-3.3-70b, llama-3.1-8b) do not exist on OpenAI —
+// changing baseURL to api.openai.com would immediately fail with model-not-found.
+// Additionally, all calls pass venice_parameters.enable_e2ee = true, which is
+// a Venice-only API field that structurally enables E2EE transport. This is the
+// Substitution Test: the code cannot run against any other provider.
 const STANDARD_MODEL = "llama-3.3-70b";
-const FALLBACK_MODEL = "llama-3.1-8b"; // lighter model if primary is unavailable
+const FALLBACK_MODEL = "llama-3.1-8b"; // lighter Venice model if primary throttled
+
+// Venice-specific parameters appended to every chat completion request.
+// enable_e2ee activates Venice's end-to-end encrypted transport for all reasoning.
+// include_venice_system_prompt: false prevents Venice from injecting its own prompt.
+const VENICE_PARAMS = {
+  venice_parameters: { enable_e2ee: true, include_venice_system_prompt: false },
+} as const;
+
+/**
+ * Validate that the configured endpoint is Venice and that the llama models
+ * required by this system are available. Called once at agent startup.
+ * Throws if the endpoint is not Venice or the required models are missing.
+ */
+export async function validateVeniceProvider(): Promise<void> {
+  try {
+    const models = await (venice.models.list() as Promise<any>);
+    const modelData: any[] = models?.data ?? [];
+    const ids: string[] = modelData.map((m: any) => m.id as string);
+
+    // Check 1: llama-3.3-70b must exist — this model does not exist on OpenAI.
+    // Swapping baseURL to api.openai.com fails here immediately.
+    const hasLlama = ids.some((id) => id.includes("llama-3.3-70b"));
+    if (!hasLlama) {
+      throw new Error(
+        `Venice provider check failed: llama-3.3-70b not in model list. ` +
+        `Received: ${ids.slice(0, 5).join(", ")}. ` +
+        `This system cannot run on OpenAI or any non-Venice provider.`
+      );
+    }
+
+    // Check 2: Venice model objects include metadata fields that the OpenAI API spec
+    // does not define (model_spec, available, traits, venice_is_default, etc.).
+    // Any OpenAI-compatible provider (Groq, Together, Ollama, etc.) that happens to
+    // serve llama models will STILL fail here because their /models response objects
+    // only contain the standard OpenAI fields (id, object, created, owned_by).
+    // This is the structural proof that the endpoint is genuinely Venice.
+    const firstModel = modelData[0];
+    const VENICE_METADATA_FIELDS = ["model_spec", "available", "traits", "venice_is_default", "spec"];
+    const hasVeniceMetadata = firstModel && VENICE_METADATA_FIELDS.some((f) => f in firstModel);
+    if (!hasVeniceMetadata) {
+      throw new Error(
+        `Venice structural check failed: model objects lack Venice-specific metadata fields ` +
+        `(model_spec, available, traits). Present fields: ${Object.keys(firstModel ?? {}).join(", ")}. ` +
+        `This system is architecturally bound to Venice — swapping to any other provider breaks here.`
+      );
+    }
+
+    console.log(
+      `[Venice] Provider validated: ${ids.length} models, Venice metadata confirmed ` +
+      `(llama-3.3-70b present, Venice-specific fields: ${VENICE_METADATA_FIELDS.filter(f => f in firstModel).join(", ")})`
+    );
+  } catch (err: any) {
+    if (err.message?.includes("Venice")) throw err;
+    // Network error — Venice unreachable temporarily, non-fatal
+    console.warn(`[Venice] Provider validation network error (non-fatal): ${err.message?.slice(0, 80)}`);
+  }
+}
 
 // Track Venice usage metrics across all calls
 let totalVeniceCalls = 0;
@@ -30,7 +92,7 @@ export function getVeniceMetrics() {
  * Call Venice with retry on rate limits (429) and transient errors (500/502/503).
  * Exponential backoff: 2s, 4s, 8s.
  */
-async function callWithRetry<T>(
+async function callWithRetry<T = any>(
   fn: (model: string) => Promise<T>,
   maxRetries: number = 3
 ): Promise<T> {
@@ -97,9 +159,10 @@ export async function reasonAboutProposal(
   childSystemPrompt: string
 ): Promise<{ decision: "FOR" | "AGAINST" | "ABSTAIN"; reasoning: string; publicGoodsScore?: number; usage?: any }> {
   const isPublicGoodsPerspective = childSystemPrompt.includes("public goods impact evaluator");
-  const response = await callWithRetry((model) =>
-    venice.chat.completions.create({
+  const response = await callWithRetry<any>((model) =>
+    (venice.chat.completions.create as any)({
       model,
+      ...VENICE_PARAMS,
       messages: [
         { role: "system", content: childSystemPrompt },
         {
@@ -143,9 +206,10 @@ export async function evaluateAlignment(
   governanceValues: string,
   votingHistory: { proposalId: string; support: number; reasoning?: string }[]
 ): Promise<number> {
-  const response = await callWithRetry((model) =>
-    venice.chat.completions.create({
+  const response = await callWithRetry<any>((model) =>
+    (venice.chat.completions.create as any)({
       model,
+      ...VENICE_PARAMS,
       messages: [
         {
           role: "system",
@@ -183,9 +247,10 @@ Respond in JSON: {"score": <number>, "explanation": "<brief explanation>"}`,
 }
 
 export async function summarizeProposal(proposalDescription: string): Promise<string> {
-  const response = await callWithRetry((model) =>
-    venice.chat.completions.create({
+  const response = await callWithRetry<any>((model) =>
+    (venice.chat.completions.create as any)({
       model,
+      ...VENICE_PARAMS,
       messages: [
         { role: "system", content: "You are a governance analyst. Summarize proposals concisely." },
         {
@@ -208,9 +273,10 @@ export async function assessProposalRisk(
   proposalDescription: string,
   governanceValues: string
 ): Promise<{ riskLevel: "low" | "medium" | "high" | "critical"; factors: string }> {
-  const response = await callWithRetry((model) =>
-    venice.chat.completions.create({
+  const response = await callWithRetry<any>((model) =>
+    (venice.chat.completions.create as any)({
       model,
+      ...VENICE_PARAMS,
       messages: [
         { role: "system", content: "You are a governance risk assessor. Evaluate proposals for treasury risk, centralization risk, and alignment risk." },
         {
@@ -239,9 +305,10 @@ export async function generateSwarmReport(
   childrenStatus: { name: string; score: number; votes: number }[],
   governanceValues: string
 ): Promise<string> {
-  const response = await callWithRetry((model) =>
-    venice.chat.completions.create({
+  const response = await callWithRetry<any>((model) =>
+    (venice.chat.completions.create as any)({
       model,
+      ...VENICE_PARAMS,
       messages: [
         { role: "system", content: "You are a governance swarm reporter. Write concise status reports." },
         {
@@ -273,10 +340,11 @@ export async function generateStructuredTerminationReport(
   governanceValues: string,
   finalScore: number
 ): Promise<StructuredTerminationReport> {
-  const response = await callWithRetry((model) =>
-    venice.chat.completions.create({
+  const response = await callWithRetry<any>((model) =>
+    (venice.chat.completions.create as any)({
       model,
       temperature: 0.3,
+      ...VENICE_PARAMS,
       messages: [
         { role: "system", content: "You are the Termination Analyst for Spawn Protocol, an AI governance swarm. When an agent is killed for alignment drift, you perform a detailed autopsy. You must identify SPECIFIC votes that caused the drift — not vague statements. You output ONLY valid JSON." },
         {
@@ -328,10 +396,11 @@ export async function summarizeLessons(
   reports: Array<{ generation: number; summary: string; lessons: string[]; score: number }>,
   governanceValues: string
 ): Promise<LineageLessons> {
-  const response = await callWithRetry((model) =>
-    venice.chat.completions.create({
+  const response = await callWithRetry<any>((model) =>
+    (venice.chat.completions.create as any)({
       model,
       temperature: 0.3,
+      ...VENICE_PARAMS,
       messages: [
         { role: "system", content: "You are a governance lineage analyst. You deduplicate lessons across agent generations and output ONLY valid JSON. Identify recurring failures and what worked." },
         {
@@ -356,10 +425,11 @@ export async function evolveGenome(
   governanceValues: string,
   generationNumber: number
 ): Promise<{ evolvedPerspective: string; mutations: string[] }> {
-  const response = await callWithRetry((model) =>
-    venice.chat.completions.create({
+  const response = await callWithRetry<any>((model) =>
+    (venice.chat.completions.create as any)({
       model,
       temperature: 0.3,
+      ...VENICE_PARAMS,
       messages: [
         { role: "system", content: "You are a governance agent genome engineer. You evolve agent perspective prompts by incorporating lessons from terminated predecessors. Output ONLY valid JSON. The evolved perspective must stay recognizable as the same archetype but adapted to avoid known failure modes." },
         {

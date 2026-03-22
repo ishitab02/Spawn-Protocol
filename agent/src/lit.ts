@@ -10,8 +10,8 @@ import dotenv from "dotenv";
 
 dotenv.config({ path: "../.env" });
 
-// TimeLock contract deployed on Base Sepolia
-const TIMELOCK_CONTRACT_ADDRESS = "0x1bDeaE9e843188DBF31bf69b65809da485174ea3";
+// TimeLock contract deployed on Base Sepolia (from broadcast/DeployMultiDAO.s.sol)
+const TIMELOCK_CONTRACT_ADDRESS = "0xb91f936aCd6c9fcdd71C64b57e4e92bb6db7DD23";
 const BASE_SEPOLIA_CHAIN_ID = 84532;
 const LIT_CHAIN = "baseSepolia" as const;
 
@@ -118,7 +118,7 @@ export async function initLit(): Promise<void> {
 
   console.log("[Lit] Connecting to Lit DatilDev network...");
   litNodeClient = new LitNodeClientNodeJs({
-    litNetwork: "datil-dev",
+    litNetwork: "datil",
     debug: false,
   });
 

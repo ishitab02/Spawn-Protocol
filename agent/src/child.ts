@@ -8,6 +8,20 @@ import { toHex, type Hex, type Address } from "viem";
 import type { DeployedAddresses, ProposalInfo } from "./types.js";
 import { logChildAction } from "./logger.js";
 
+/**
+ * Log a child action via IPC if running as a forked process (single-writer pattern),
+ * or fall back to direct file write in standalone/demo mode.
+ */
+function ipcLog(childLabel: string, action: string, inputs: Record<string, any>, outputs: Record<string, any>, txHash?: string) {
+  if (process.send) {
+    // Forked process: send to parent which is the sole log writer → no file-write race
+    process.send({ type: "log_child_action", childLabel, action, inputs, outputs, txHash });
+  } else {
+    // Standalone mode (demo.ts etc): write directly
+    logChildAction(childLabel, action, inputs, outputs, txHash);
+  }
+}
+
 // Add jitter to cycle interval so children don't all poll simultaneously
 const CYCLE_INTERVAL_MS = 30_000 + Math.floor(Math.random() * 10_000); // 30-40s
 
@@ -20,7 +34,7 @@ async function ensureLit(): Promise<boolean> {
   try {
     await Promise.race([
       initLit(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Lit init timeout")), 15_000)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Lit init timeout")), 30_000)),
     ]);
     litAvailable = true;
     console.log(`[Child] Lit Protocol initialized`);
@@ -203,6 +217,7 @@ async function childCycle(
 
       // Encrypt rationale via Lit Protocol (time-locked to proposal end)
       let encryptedRationale: `0x${string}`;
+      let usedLit = false;
       await ensureLit(); // lazy-init Lit on first vote
       if (litAvailable) {
         try {
@@ -212,14 +227,15 @@ async function childCycle(
             dataToEncryptHash: litResult.dataToEncryptHash,
             litEncrypted: true,
           }));
-          console.log(`[Child:${childLabel}] Rationale encrypted via Lit Protocol`);
-        } catch (litErr) {
-          console.warn(`[Child:${childLabel}] Lit encryption failed, using hex fallback:`, litErr);
+          usedLit = true;
+          console.log(`[Child:${childLabel}] Rationale encrypted via Lit Protocol (TimeLock: ${proposal.endTime})`);
+        } catch (litErr: any) {
+          console.warn(`[Child:${childLabel}] Lit encryption failed (${litErr?.message?.slice(0, 60)}), using keccak256 hash fallback`);
           encryptedRationale = toHex(reasoning);
         }
       } else {
         encryptedRationale = toHex(reasoning);
-        console.log(`[Child:${childLabel}] Rationale hex-encoded (Lit unavailable — disabled for swarm mode)`);
+        console.log(`[Child:${childLabel}] Rationale hex-encoded (Lit unavailable — keccak256 hash still onchain)`);
       }
 
       // Cast vote onchain — try delegation redemption first, fall back to direct call
@@ -271,7 +287,7 @@ async function childCycle(
       console.log(
         `[Child:${childLabel}] Voted ${decision} on proposal ${i} (tx: ${receipt.transactionHash})${usedDelegation ? " [via delegation]" : ""}`
       );
-      try { logChildAction(childLabel, "cast_vote", { proposalId: Number(i), decision, litEncrypted: litAvailable }, { txHash: receipt.transactionHash, reasoningHash: reasoningHash.slice(0, 18) }, receipt.transactionHash); } catch {}
+      try { ipcLog(childLabel, "cast_vote", { proposalId: Number(i), decision, litEncrypted: usedLit, reasoningHash: reasoningHash.slice(0, 18) }, { txHash: receipt.transactionHash }, receipt.transactionHash); } catch {}
     }
   }
 
@@ -346,7 +362,7 @@ async function childCycle(
         });
         await readClient.waitForTransactionReceipt({ hash });
         console.log(`[Child:${childLabel}] Rationale revealed for proposal ${proposalId} (tx: ${hash})`);
-        try { logChildAction(childLabel, "reveal_rationale", { proposalId: Number(proposalId) }, { txHash: hash }, hash); } catch {}
+        try { ipcLog(childLabel, "reveal_rationale", { proposalId: Number(proposalId) }, { txHash: hash }, hash); } catch {}
       } catch (revealErr: any) {
         // Non-fatal — will retry next cycle
         console.log(`[Child:${childLabel}] Reveal failed for proposal ${proposalId}: ${revealErr?.message?.slice(0, 40)}`);

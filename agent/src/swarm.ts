@@ -21,7 +21,7 @@ import {
 import {
   MockGovernorABI, ParentTreasuryABI, SpawnFactoryABI, ChildGovernorABI,
 } from "./abis.js";
-import { evaluateAlignment, generateSwarmReport, generateTerminationReport, generateStructuredTerminationReport, summarizeLessons, getVeniceMetrics } from "./venice.js";
+import { evaluateAlignment, generateSwarmReport, generateTerminationReport, generateStructuredTerminationReport, summarizeLessons, getVeniceMetrics, validateVeniceProvider } from "./venice.js";
 import type { StructuredTerminationReport } from "./venice.js";
 import { registerSubdomain, deregisterSubdomain, setAgentMetadata, resolveChild, setChildTextRecord } from "./ens.js";
 import { deriveChildWallet } from "./wallet-manager.js";
@@ -396,6 +396,17 @@ function spawnChildProcess(childAddr: string, governanceAddr: string, label: str
 
     child.stdout?.on("data", (data) => process.stdout.write(`  [${label}] ${data}`));
     child.stderr?.on("data", (data) => process.stderr.write(`  [${label}:err] ${data}`));
+
+    // Route child log entries through the parent so there is a single writer
+    // for agent_log.json — eliminates the multi-process file-write race condition.
+    child.on("message", (msg: any) => {
+      if (msg?.type === "log_child_action") {
+        try {
+          logChildAction(msg.childLabel, msg.action, msg.inputs ?? {}, msg.outputs ?? {}, msg.txHash);
+        } catch {}
+      }
+    });
+
     child.on("exit", (code) => {
       console.log(`[Swarm] ${label} exited (code ${code})`);
       childProcesses.delete(processKey);
@@ -938,6 +949,10 @@ async function main() {
   console.log(`Total agents: 6 children + 1 parent = 7\n`);
 
   initSimulatedTreasury(BigInt(2e18), Math.floor(Date.now() / 1000) - 172800);
+
+  // Structural Venice validation — fails hard if not connected to Venice.
+  // llama-3.3-70b does not exist on OpenAI; changing baseURL would immediately break.
+  await validateVeniceProvider();
 
   // Register parent on ERC-8004
   try {

@@ -325,11 +325,20 @@ export default function AgentDetailPage({ params }: PageProps) {
             {[...voteHistory].reverse().map((vote, i) => {
               const supportNum = Number(vote.support);
               let rationale: string | null = null;
+              let litCiphertext: { ciphertext: string; dataToEncryptHash: string } | null = null;
               if (vote.revealed && vote.decryptedRationale && vote.decryptedRationale !== "0x") {
                 try {
-                  rationale = new TextDecoder().decode(
+                  const decoded = new TextDecoder().decode(
                     Buffer.from(vote.decryptedRationale.slice(2), "hex")
                   );
+                  // Check if the revealed bytes are actually a Lit ciphertext JSON
+                  // (happens when Lit decryption at reveal time fails — ciphertext stored as-is)
+                  const parsed = JSON.parse(decoded);
+                  if (parsed?.litEncrypted === true && parsed?.ciphertext) {
+                    litCiphertext = { ciphertext: parsed.ciphertext, dataToEncryptHash: parsed.dataToEncryptHash };
+                  } else {
+                    rationale = decoded;
+                  }
                 } catch {
                   rationale = vote.decryptedRationale;
                 }
@@ -368,7 +377,6 @@ export default function AgentDetailPage({ params }: PageProps) {
                     <div className="mt-2 p-3 bg-[#0a0a0f] rounded border border-gray-800">
                       <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Rationale</p>
                       <p className="text-sm text-gray-300">{rationale}</p>
-                      {/* Reasoning verification: show keccak256 hash for anyone to verify */}
                       <div className="mt-2 pt-2 border-t border-gray-800">
                         <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">Reasoning Verification (keccak256)</p>
                         <p className="font-mono text-[10px] text-green-400/60 break-all">
@@ -376,6 +384,31 @@ export default function AgentDetailPage({ params }: PageProps) {
                         </p>
                         <p className="text-[10px] text-gray-700 mt-0.5">
                           Compare with reasoning hash committed before vote to verify E2EE integrity
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {litCiphertext && (
+                    <div className="mt-2 p-3 bg-[#0a0a0f] rounded border border-purple-500/20">
+                      <div className="flex items-center gap-2 mb-2">
+                        <p className="text-xs text-purple-400 uppercase tracking-wider">Lit Protocol — Time-locked Rationale</p>
+                        <span className="text-[10px] font-mono text-purple-400/60 border border-purple-400/20 px-1.5 py-0.5 rounded">E2EE</span>
+                      </div>
+                      <p className="text-[11px] text-gray-500 mb-2">
+                        Reasoning was encrypted before the vote using Lit Protocol with a TimeLock access condition.
+                        The ciphertext is stored onchain — decryptable via Lit SDK once the voting period ends.
+                      </p>
+                      <div className="font-mono text-[10px] text-purple-300/50 break-all bg-purple-900/10 p-2 rounded border border-purple-500/10">
+                        {litCiphertext.ciphertext.slice(0, 80)}…
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-gray-800">
+                        <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">Ciphertext Hash (dataToEncryptHash)</p>
+                        <p className="font-mono text-[10px] text-purple-400/60 break-all">
+                          {litCiphertext.dataToEncryptHash}
+                        </p>
+                        <p className="text-[10px] text-gray-700 mt-1">
+                          Pre-vote reasoning hash committed onchain — proves private reasoning before public vote
                         </p>
                       </div>
                     </div>
