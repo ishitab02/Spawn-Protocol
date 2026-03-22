@@ -394,13 +394,6 @@ export default function AgentDetailPage({ params }: PageProps) {
         </div>
       )}
 
-      {/* ERC-8004 not found notice — only show after loading completes and child is active */}
-      {!erc8004Loading && !erc8004Data && child.active && (
-        <div className="border border-gray-800 rounded-lg p-4 mb-6 flex items-center gap-3">
-          <span className="text-[10px] font-mono text-gray-600 uppercase tracking-wider">ERC-8004</span>
-          <span className="text-xs text-gray-600 font-mono">Identity not yet registered in registry {formatAddress(ERC8004_REGISTRY)}</span>
-        </div>
-      )}
 
       {/* Lineage Memory */}
       {(() => {
