@@ -79,6 +79,8 @@ export default function AgentDetailPage({ params }: PageProps) {
     }
 
     const targetName = `spawn://${ensLabel}.spawn.eth`.toLowerCase();
+    const baseLabel = ensLabel.replace(/-v\d+$/, "");
+    const targetNameBase = `spawn://${baseLabel}.spawn.eth`.toLowerCase();
     setErc8004Loading(true);
 
     let cancelled = false;
@@ -118,7 +120,7 @@ export default function AgentDetailPage({ params }: PageProps) {
           if (rawUris.every((r) => r === null)) break;
 
           const matchIdx = names.findIndex(
-            (n) => n && n.toLowerCase() === targetName
+            (n) => n && (n.toLowerCase() === targetName || n.toLowerCase() === targetNameBase)
           );
           if (matchIdx !== -1 && !cancelled) {
             const agentId = ids[matchIdx];

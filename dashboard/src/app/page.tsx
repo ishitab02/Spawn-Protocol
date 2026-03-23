@@ -82,7 +82,12 @@ export default function SwarmPage() {
   const childLabelsKey = children.map((c) => c.ensLabel).sort().join(",");
   useEffect(() => {
     if (children.length === 0 || erc8004IdsCache.size > 0) return;
-    const labelToAddr = new Map(children.map((c) => [c.ensLabel.toLowerCase(), c.childAddr.toLowerCase()]));
+    const labelToAddr = new Map(children.flatMap((c) => {
+      const label = c.ensLabel.toLowerCase();
+      const base = label.replace(/-v\d+$/, "");
+      const addr = c.childAddr.toLowerCase();
+      return base !== label ? [[label, addr], [base, addr]] as [string, string][] : [[label, addr]] as [string, string][];
+    }));
     let cancelled = false;
     (async () => {
       const map = new Map<string, bigint>();
