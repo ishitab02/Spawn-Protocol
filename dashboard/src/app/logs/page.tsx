@@ -178,19 +178,19 @@ export default function LogsPage() {
   useEffect(() => { setPage(1); }, [phase, search]);
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       {/* Header */}
-      <div className="mb-8 flex items-start justify-between">
+      <div className="mb-8 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-mono font-bold text-orange-400 tracking-tight">
             Execution Log
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Autonomous execution evidence — Protocol Labs "Agents With Receipts" + "Let the Agent Cook"
+            Autonomous execution evidence — Protocol Labs &quot;Agents With Receipts&quot; + &quot;Let the Agent Cook&quot;
           </p>
         </div>
         {log && (
-          <div className="text-right text-xs font-mono text-gray-600">
+          <div className="sm:text-right text-xs font-mono text-gray-600">
             <div className="text-gray-400">{log.agentName} v{log.version}</div>
             <div className="mt-0.5">{log.executionLogs.length} total entries</div>
           </div>
@@ -237,7 +237,7 @@ export default function LogsPage() {
 
       {/* Secondary metrics */}
       {log && (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
           {[
             { label: "Chains",          value: log.metrics.chainsDeployed.join(", ") },
             { label: "Contracts",       value: log.metrics.contractsDeployed },
@@ -445,10 +445,15 @@ export default function LogsPage() {
                           Verify: {entry.verifyIn}
                         </p>
                       )}
+
+                      {/* Mobile timestamp */}
+                      <span className="text-[10px] text-gray-600 font-mono sm:hidden block mt-2">
+                        {formatTime(entry.timestamp)}
+                      </span>
                     </div>
 
                     {/* Timestamp */}
-                    <span className="text-[10px] text-gray-600 font-mono shrink-0 whitespace-nowrap">
+                    <span className="text-[10px] text-gray-600 font-mono shrink-0 hidden sm:block whitespace-nowrap">
                       {formatTime(entry.timestamp)}
                     </span>
                   </div>

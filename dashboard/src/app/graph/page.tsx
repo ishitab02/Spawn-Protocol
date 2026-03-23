@@ -66,7 +66,7 @@ export default function GraphPage() {
           <svg
             width="100%"
             viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
-            className="w-full min-w-[480px]"
+            className="w-full"
             style={{ maxHeight: 600 }}
             preserveAspectRatio="xMidYMid meet"
           >

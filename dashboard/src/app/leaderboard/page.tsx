@@ -50,7 +50,7 @@ export default function LeaderboardPage() {
   }, [activeChildren]);
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <div className="mb-8">
         <h1 className="text-2xl font-mono font-bold text-green-400 tracking-tight">
           Agent Leaderboard
@@ -73,8 +73,8 @@ export default function LeaderboardPage() {
       {loading ? (
         <div className="text-gray-500 font-mono text-sm animate-pulse">Loading agents...</div>
       ) : (
-        <div className="border border-gray-800 rounded-lg overflow-hidden">
-          <table className="w-full text-sm font-mono">
+        <div className="border border-gray-800 rounded-lg overflow-x-auto">
+          <table className="w-full text-sm font-mono min-w-[700px]">
             <thead>
               <tr className="bg-gray-900/80 text-gray-400 text-xs uppercase tracking-wider">
                 <th className="px-4 py-3 text-left">Rank</th>
@@ -180,7 +180,7 @@ export default function LeaderboardPage() {
           <h2 className="text-lg font-mono text-red-400 mb-3">
             Terminated Agents ({terminatedChildren.length})
           </h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
             {terminatedChildren.slice(0, 12).map((child) => (
               <div
                 key={child.ensLabel}
