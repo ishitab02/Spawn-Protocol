@@ -274,9 +274,7 @@ export default function SwarmPage() {
           >
             <span className="text-teal-400 text-sm">ENS</span>
             <span className="text-xs font-mono text-teal-300">
-              {ensSubdomainCount === null
-                ? "loading…"
-                : `${ensSubdomainCount} active agent subdomain${ensSubdomainCount !== 1 ? "s" : ""} on spawn.eth`}
+              {`${activeCount} active agent subdomain${activeCount !== 1 ? "s" : ""} on spawn.eth`}
             </span>
             <span className="text-[10px] font-mono text-teal-400/60">SpawnENSRegistry {ENS_REGISTRY.slice(0, 6)}…{ENS_REGISTRY.slice(-4)}</span>
             <span className="text-teal-400 text-xs">↗</span>
