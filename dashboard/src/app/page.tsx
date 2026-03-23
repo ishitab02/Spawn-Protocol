@@ -74,12 +74,16 @@ export default function SwarmPage() {
   // Our tokens live at IDs ~2200+ on the shared public registry.
   // Match by parsing the ENS label from tokenURI (base64 JSON name field)
   // and comparing against child.ensLabel. Filter to our deployer address only.
+  // Use a stable key (sorted labels) to prevent re-scanning on every 15s poll.
+  const childLabelsKey = children.map((c) => c.ensLabel).sort().join(",");
   useEffect(() => {
     if (children.length === 0) return;
     const labelToAddr = new Map(children.map((c) => [c.ensLabel.toLowerCase(), c.childAddr.toLowerCase()]));
+    let cancelled = false;
     (async () => {
       const map = new Map<string, bigint>();
       for (let batchStart = ERC8004_SCAN_START; batchStart <= ERC8004_SCAN_END; batchStart += 20) {
+        if (cancelled) return;
         const batchEnd = Math.min(batchStart + 19, ERC8004_SCAN_END);
         const ids = Array.from({ length: batchEnd - batchStart + 1 }, (_, i) => BigInt(batchStart + i));
         const [owners, uris] = await Promise.all([
@@ -108,9 +112,10 @@ export default function SwarmPage() {
         // Stop early if we've passed the minted range or matched everyone
         if (allNull || map.size >= labelToAddr.size) break;
       }
-      if (map.size > 0) setErc8004Ids(map);
+      if (map.size > 0 && !cancelled) setErc8004Ids(map);
     })();
-  }, [children, client]);
+    return () => { cancelled = true; };
+  }, [childLabelsKey, client]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch ENS subdomain count for the badge
   useEffect(() => {

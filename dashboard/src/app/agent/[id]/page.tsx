@@ -63,14 +63,19 @@ export default function AgentDetailPage({ params }: PageProps) {
   // Resolve ERC-8004 identity by scanning tokenURI on the shared public registry.
   // Our tokens start at ~ID 2200. The tokenURI returns a base64-encoded JSON whose
   // "name" field is "spawn://<ensLabel>.spawn.eth" — that's our match key.
+  // Use child.ensLabel as dependency (not the full child object) to prevent
+  // re-scanning on every 15s poll cycle — the label doesn't change.
+  const ensLabel = child?.ensLabel;
   useEffect(() => {
-    if (!child) return;
-    const targetName = `spawn://${child.ensLabel}.spawn.eth`.toLowerCase();
+    if (!ensLabel) return;
+    const targetName = `spawn://${ensLabel}.spawn.eth`.toLowerCase();
     setErc8004Loading(true);
 
+    let cancelled = false;
     (async () => {
       try {
         for (let batchStart = ERC8004_SCAN_START; batchStart <= ERC8004_SCAN_END; batchStart += 20) {
+          if (cancelled) return;
           const ids = Array.from(
             { length: Math.min(20, ERC8004_SCAN_END - batchStart + 1) },
             (_, i) => BigInt(batchStart + i)
@@ -105,7 +110,7 @@ export default function AgentDetailPage({ params }: PageProps) {
           const matchIdx = names.findIndex(
             (n) => n && n.toLowerCase() === targetName
           );
-          if (matchIdx !== -1) {
+          if (matchIdx !== -1 && !cancelled) {
             const agentId = ids[matchIdx];
             // Fetch all metadata fields in parallel
             const [agentType, alignmentScore, ensNameVal, governanceContract, capabilities, agentURI, owner] =
@@ -116,28 +121,31 @@ export default function AgentDetailPage({ params }: PageProps) {
                 client.readContract({ address: ERC8004_REGISTRY, abi: ERC8004_ABI, functionName: "getMetadata", args: [agentId, "governanceContract"] }).catch(() => ""),
                 client.readContract({ address: ERC8004_REGISTRY, abi: ERC8004_ABI, functionName: "getMetadata", args: [agentId, "capabilities"] }).catch(() => ""),
                 client.readContract({ address: ERC8004_REGISTRY, abi: ERC8004_ABI, functionName: "tokenURI", args: [agentId] }).catch(() => ""),
-                client.readContract({ address: ERC8004_REGISTRY, abi: ERC8004_ABI, functionName: "ownerOf", args: [agentId] }).catch(() => child.childAddr as Address),
+                client.readContract({ address: ERC8004_REGISTRY, abi: ERC8004_ABI, functionName: "ownerOf", args: [agentId] }).catch(() => "0x0000000000000000000000000000000000000000" as Address),
               ]);
-            setErc8004Data({
-              agentId,
-              agentType: agentType as string,
-              alignmentScore: alignmentScore as string,
-              ensName: (ensNameVal as string) || `${child.ensLabel}.spawn.eth`,
-              governanceContract: governanceContract as string,
-              capabilities: capabilities as string,
-              agentURI: agentURI as string,
-              owner: owner as Address,
-            });
+            if (!cancelled) {
+              setErc8004Data({
+                agentId,
+                agentType: agentType as string,
+                alignmentScore: alignmentScore as string,
+                ensName: (ensNameVal as string) || `${ensLabel}.spawn.eth`,
+                governanceContract: governanceContract as string,
+                capabilities: capabilities as string,
+                agentURI: agentURI as string,
+                owner: owner as Address,
+              });
+            }
             return;
           }
         }
       } catch {
         // Silently fail — registry may not have this agent
       } finally {
-        setErc8004Loading(false);
+        if (!cancelled) setErc8004Loading(false);
       }
     })();
-  }, [child, client]);
+    return () => { cancelled = true; };
+  }, [ensLabel, client]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch delegation + revocation from ENS text records
   useEffect(() => {
