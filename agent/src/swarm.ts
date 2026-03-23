@@ -2,8 +2,8 @@
  * Spawn Protocol — Autonomous Governance Swarm (Production)
  *
  * This is the REAL PRODUCT. Not a demo script. A persistent system that:
- *   1. Runs across Base Sepolia + Celo Sepolia simultaneously
- *   2. Spawns one child agent per DAO (3 DAOs per chain = 6 agents)
+ *   1. Runs on Base Sepolia
+ *   2. Spawns one child agent per DAO (3 DAOs × 3 perspectives = 9 agents)
  *   3. Discovers proposals and creates them on MockGovernors
  *   4. Children vote autonomously via Venice AI (separate processes)
  *   5. Parent evaluates alignment and kills/respawns drifting children
@@ -16,7 +16,6 @@
 import { fork, type ChildProcess } from "child_process";
 import {
   publicClient, walletClient, account, sendTxAndWait,
-  celoPublicClient, celoWalletClient, sendTxAndWaitCelo,
 } from "./chain.js";
 import {
   MockGovernorABI, ParentTreasuryABI, SpawnFactoryABI, ChildGovernorABI,
@@ -65,9 +64,8 @@ async function fundChildWallet(
 ): Promise<boolean> {
   // Queue behind any pending funding tx to avoid nonce races
   const result = fundingLock.then(async () => {
-    const isBase = chainName === "base-sepolia";
-    const wc = isBase ? walletClient : celoWalletClient;
-    const pc = isBase ? publicClient : celoPublicClient;
+    const wc = walletClient;
+    const pc = publicClient;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
@@ -130,18 +128,6 @@ const BASE_CONFIG: ChainConfig = {
   ],
 };
 
-const CELO_CONFIG: ChainConfig = {
-  name: "celo-sepolia",
-  sendTx: sendTxAndWaitCelo,
-  readClient: celoPublicClient,
-  treasury: "0x35ab52d20736886ebe3730f7fc2d6fa52c7159d4",
-  factory: "0x8d3c3dbbc7a6f87feaf24282956ca8a014fe889a",
-  governors: [
-    { name: "uniswap-celo", addr: "0x1e7d5f7c461d8f4678699669ace80e5e317b466f" },
-    { name: "lido-celo", addr: "0x349618bed66c73faca427da69a26cb8f7f91b9bb" },
-    { name: "ens-celo", addr: "0x1f54fd588a80bbde83d91003c043f21705814885" },
-  ],
-};
 
 // ── Proposal Bank (real governance topics) ──
 const PROPOSAL_BANK = [
@@ -238,9 +224,8 @@ async function initChain(config: ChainConfig) {
 
       // Fund the child wallet on the correct chain
       try {
-        const isBase = config.name === "base-sepolia";
-        const wc = isBase ? walletClient : celoWalletClient;
-        const pc = isBase ? publicClient : celoPublicClient;
+        const wc = walletClient;
+        const pc = publicClient;
         const fundHash = await (wc as any).sendTransaction({
           to: childWallet.address,
           value: parseEther("0.001"),
@@ -1023,9 +1008,9 @@ async function main() {
   console.log("║  Cross-chain · Self-correcting · Zero human input   ║");
   console.log("╚══════════════════════════════════════════════════════╝");
   console.log(`\nAgent: ${account.address}`);
-  console.log(`Chains: Base Sepolia + Celo Sepolia`);
-  console.log(`DAOs per chain: 3 (Uniswap, Lido, ENS)`);
-  console.log(`Total agents: 6 children + 1 parent = 7\n`);
+  console.log(`Chain: Base Sepolia`);
+  console.log(`DAOs: 3 (Uniswap, Lido, ENS)`);
+  console.log(`Total agents: 9 children + 1 parent = 10\n`);
 
   initSimulatedTreasury(BigInt(2e18), Math.floor(Date.now() / 1000) - 172800);
 
@@ -1058,11 +1043,8 @@ async function main() {
     console.log(`[DeleGator] Parent smart account: ${deleGatorAddr}`);
   }
 
-  // Initialize both chains
+  // Initialize chain
   await initChain(BASE_CONFIG);
-  try { await initChain(CELO_CONFIG); } catch (err: any) {
-    console.log(`[Celo] Init failed: ${err?.message?.slice(0, 60)} — continuing without Celo`);
-  }
 
   // Start multi-source discovery feed — Tally + Snapshot + simulated
   console.log("\n── Starting proposal discovery feed ──");
@@ -1080,14 +1062,12 @@ async function main() {
   console.log("\n── Seeding initial proposals ──");
   for (let i = 0; i < 3; i++) {
     await createProposalOnChain(BASE_CONFIG);
-    await createProposalOnChain(CELO_CONFIG);
   }
 
   // Proposal creation loop — new proposals appear automatically
   setInterval(async () => {
     console.log("\n── New proposals appearing ──");
     await createProposalOnChain(BASE_CONFIG);
-    await createProposalOnChain(CELO_CONFIG);
     // Log discovered DAOs and feed stats
     const daos = getDiscoveredDAOs();
     const stats = getFeedStats();
@@ -1106,17 +1086,6 @@ async function main() {
       await evaluateChainChildren(BASE_CONFIG);
     } catch (err: any) {
       console.log(`[Base Sepolia] Eval error: ${err?.message?.slice(0, 80)}`);
-    }
-
-    try {
-      console.log(`\n[Celo Sepolia]`);
-      // Timeout Celo eval at 30s so it doesn't block Base
-      await Promise.race([
-        evaluateChainChildren(CELO_CONFIG),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Celo eval timeout")), 30000)),
-      ]);
-    } catch (err: any) {
-      console.log(`[Celo Sepolia] Eval error: ${err?.message?.slice(0, 80)}`);
     }
 
     try {
