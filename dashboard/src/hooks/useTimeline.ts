@@ -131,7 +131,8 @@ export function useTimeline() {
       const knownSet = new Set([...knownChildAddresses.current].map((a) => a.toLowerCase()));
       const childFrom = isInitial ? DEPLOY_BLOCK : fromBlock;
 
-      const [voteLogs, alignmentLogs, revealedLogs] = await Promise.all([
+      const [mockVoteLogs, childVoteLogs, alignmentLogs, revealedLogs] = await Promise.all([
+        // MockGovernor VoteCast (legacy — old children called MockGovernor directly)
         getLogsInRange({
           address: MOCK_GOVERNOR_ADDRS,
           event: { type: "event", name: "VoteCast", inputs: [
@@ -139,6 +140,14 @@ export function useTimeline() {
             { name: "voter", type: "address", indexed: true },
             { name: "support", type: "uint8", indexed: false },
             { name: "reason", type: "string", indexed: false },
+          ]},
+        }, childFrom, currentBlock).catch(() => [] as any[]),
+        // ChildGovernor VoteCast (current — children emit their own VoteCast)
+        getLogsInRange({
+          event: { type: "event", name: "VoteCast", inputs: [
+            { name: "proposalId", type: "uint256", indexed: true },
+            { name: "support", type: "uint8", indexed: false },
+            { name: "encryptedRationale", type: "bytes", indexed: false },
           ]},
         }, childFrom, currentBlock).catch(() => [] as any[]),
         getLogsInRange({
@@ -153,7 +162,12 @@ export function useTimeline() {
           ]},
         }, childFrom, currentBlock).catch(() => [] as any[]),
       ]);
-      const voteCastLogs = voteLogs as any[];
+      // Merge both MockGovernor and ChildGovernor VoteCast events
+      const childVoteLogsFiltered = (childVoteLogs as any[]).filter((log) => knownSet.has((log.address as string)?.toLowerCase()));
+      const voteCastLogs = [
+        ...(mockVoteLogs as any[]).map((log: any) => ({ ...log, _source: "mock" })),
+        ...childVoteLogsFiltered.map((log: any) => ({ ...log, _source: "child" })),
+      ];
       const alignmentLogsFiltered = (alignmentLogs as any[]).filter((log) => knownSet.has((log.address as string)?.toLowerCase()));
       const revealedLogsFiltered = (revealedLogs as any[]).filter((log) => knownSet.has((log.address as string)?.toLowerCase()));
 
@@ -199,7 +213,11 @@ export function useTimeline() {
           type: "VoteCast" as EventType,
           blockNumber: log.blockNumber ?? BigInt(0),
           transactionHash: log.transactionHash ?? ("0x" as `0x${string}`),
-          data: { childAddr: log.args?.voter, proposalId: log.args?.proposalId?.toString(), support: Number(log.args?.support ?? 0) },
+          data: {
+            childAddr: log._source === "mock" ? log.args?.voter : log.address,
+            proposalId: log.args?.proposalId?.toString(),
+            support: Number(log.args?.support ?? 0),
+          },
         })),
         ...alignmentLogsFiltered.map((log: any) => ({
           id: `alignment-${log.transactionHash}-${log.logIndex}`,

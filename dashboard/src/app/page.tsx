@@ -26,6 +26,9 @@ const ERC8004_TOKEN_ABI = [
   { type: "function", name: "tokenURI", inputs: [{ name: "tokenId", type: "uint256" }], outputs: [{ name: "", type: "string" }], stateMutability: "view" },
 ] as const;
 
+// Module-level cache for ERC-8004 scan results — survives strict mode double-mounts
+let erc8004IdsCache = new Map<string, bigint>();
+
 export default function SwarmPage() {
   const { children, loading, error, justVotedSet } = useSwarmData();
   const { client, explorerBase } = useChainContext();
@@ -33,7 +36,8 @@ export default function SwarmPage() {
   const [delegationHashes, setDelegationHashes] = useState<Map<string, string>>(new Map());
   const [ensSubdomainCount, setEnsSubdomainCount] = useState<number | null>(null);
   // Maps child contract address (lowercase) → ERC-8004 agentId
-  const [erc8004Ids, setErc8004Ids] = useState<Map<string, bigint>>(new Map());
+  // Module-level cache to survive strict mode double-mounts
+  const [erc8004Ids, setErc8004Ids] = useState<Map<string, bigint>>(erc8004IdsCache);
 
   // Fetch IPFS CID from ENS text record
   useEffect(() => {
@@ -74,10 +78,10 @@ export default function SwarmPage() {
   // Our tokens live at IDs ~2200+ on the shared public registry.
   // Match by parsing the ENS label from tokenURI (base64 JSON name field)
   // and comparing against child.ensLabel. Filter to our deployer address only.
-  // Use a stable key (sorted labels) to prevent re-scanning on every 15s poll.
+  // Scan runs ONCE per set of child labels — cached via ref to survive re-renders.
   const childLabelsKey = children.map((c) => c.ensLabel).sort().join(",");
   useEffect(() => {
-    if (children.length === 0) return;
+    if (children.length === 0 || erc8004IdsCache.size > 0) return;
     const labelToAddr = new Map(children.map((c) => [c.ensLabel.toLowerCase(), c.childAddr.toLowerCase()]));
     let cancelled = false;
     (async () => {
@@ -112,7 +116,10 @@ export default function SwarmPage() {
         // Stop early if we've passed the minted range or matched everyone
         if (allNull || map.size >= labelToAddr.size) break;
       }
-      if (map.size > 0 && !cancelled) setErc8004Ids(map);
+      if (map.size > 0 && !cancelled) {
+        erc8004IdsCache = map;
+        setErc8004Ids(map);
+      }
     })();
     return () => { cancelled = true; };
   }, [childLabelsKey, client]); // eslint-disable-line react-hooks/exhaustive-deps

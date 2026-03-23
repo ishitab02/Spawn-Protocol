@@ -45,6 +45,10 @@ interface Erc8004Data {
   owner: Address;
 }
 
+// Module-level cache — survives React strict mode double-mounts and re-renders.
+// Key = ensLabel, value = resolved ERC-8004 data.
+const erc8004Cache = new Map<string, Erc8004Data>();
+
 interface PageProps {
   params: Promise<{ id: string }>;
 }
@@ -57,17 +61,23 @@ export default function AgentDetailPage({ params }: PageProps) {
   const [revocation, setRevocation] = useState<any>(null);
   const [lineageReport, setLineageReport] = useState<any>(null);
   const [lineageMemoryCid, setLineageMemoryCid] = useState<string | null>(null);
-  const [erc8004Data, setErc8004Data] = useState<Erc8004Data | null>(null);
+  const ensLabel = child?.ensLabel;
+  const [erc8004Data, setErc8004Data] = useState<Erc8004Data | null>(
+    ensLabel ? erc8004Cache.get(ensLabel) ?? null : null
+  );
   const [erc8004Loading, setErc8004Loading] = useState(false);
 
   // Resolve ERC-8004 identity by scanning tokenURI on the shared public registry.
-  // Our tokens start at ~ID 2200. The tokenURI returns a base64-encoded JSON whose
-  // "name" field is "spawn://<ensLabel>.spawn.eth" — that's our match key.
-  // Use child.ensLabel as dependency (not the full child object) to prevent
-  // re-scanning on every 15s poll cycle — the label doesn't change.
-  const ensLabel = child?.ensLabel;
+  // Uses module-level cache to survive strict mode double-mounts and re-renders.
+  // Scan runs ONCE per ensLabel — if cached, skips entirely.
   useEffect(() => {
     if (!ensLabel) return;
+    // Already cached (from a previous mount or scan) — just use it
+    if (erc8004Cache.has(ensLabel)) {
+      setErc8004Data(erc8004Cache.get(ensLabel)!);
+      return;
+    }
+
     const targetName = `spawn://${ensLabel}.spawn.eth`.toLowerCase();
     setErc8004Loading(true);
 
@@ -90,7 +100,7 @@ export default function AgentDetailPage({ params }: PageProps) {
               }).catch(() => null)
             )
           );
-          // Parse base64 JSON and extract "name" field
+          // Parse base64 JSON or plain URI to get name
           const names = rawUris.map((raw) => {
             if (!raw) return null;
             try {
@@ -112,7 +122,6 @@ export default function AgentDetailPage({ params }: PageProps) {
           );
           if (matchIdx !== -1 && !cancelled) {
             const agentId = ids[matchIdx];
-            // Fetch all metadata fields in parallel
             const [agentType, alignmentScore, ensNameVal, governanceContract, capabilities, agentURI, owner] =
               await Promise.all([
                 client.readContract({ address: ERC8004_REGISTRY, abi: ERC8004_ABI, functionName: "getMetadata", args: [agentId, "agentType"] }).catch(() => ""),
@@ -124,7 +133,7 @@ export default function AgentDetailPage({ params }: PageProps) {
                 client.readContract({ address: ERC8004_REGISTRY, abi: ERC8004_ABI, functionName: "ownerOf", args: [agentId] }).catch(() => "0x0000000000000000000000000000000000000000" as Address),
               ]);
             if (!cancelled) {
-              setErc8004Data({
+              const data: Erc8004Data = {
                 agentId,
                 agentType: agentType as string,
                 alignmentScore: alignmentScore as string,
@@ -133,7 +142,9 @@ export default function AgentDetailPage({ params }: PageProps) {
                 capabilities: capabilities as string,
                 agentURI: agentURI as string,
                 owner: owner as Address,
-              });
+              };
+              erc8004Cache.set(ensLabel, data);
+              setErc8004Data(data);
             }
             return;
           }
