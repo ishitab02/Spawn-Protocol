@@ -1,12 +1,320 @@
 import { NextResponse } from "next/server";
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
 import { serverClient, getCached, setCache } from "@/lib/server-client";
 import { CONTRACTS } from "@/lib/contracts";
 import { SpawnFactoryABI, ChildGovernorABI } from "@/lib/abis";
+import { fetchStorageObject } from "@/lib/storage-server";
 
-const CACHE_KEY = "swarm";
-const CACHE_TTL = 10_000;
+const CACHE_KEY = "swarm:v2";
+const CACHE_TTL = 15_000;
+const ERC8004_CACHE_TTL = 90_000;
+const JUDGE_FLOW_PROXY_URL = process.env.JUDGE_FLOW_PROXY_URL?.replace(/\/$/, "");
+
+const BUDGET_STATE_PATH = join(process.cwd(), "..", "runtime_budget_state.json");
+const KNOWN_FILECOIN_STATE_CID =
+  "bafkzcibewtrqqdvlybjzqok2q5dgbdiddltdhj5asyhfnavmvowvqpeuckuuraq4ce";
+
+const ENS_REGISTRY = "0x29170A43352D65329c462e6cDacc1c002419331D" as const;
+const ENS_REGISTRY_ABI = [
+  {
+    type: "function",
+    name: "getTextRecord",
+    inputs: [
+      { name: "label", type: "string" },
+      { name: "key", type: "string" },
+    ],
+    outputs: [{ name: "", type: "string" }],
+    stateMutability: "view",
+  },
+] as const;
+
+const ERC8004_REGISTRY = "0x8004A818BFB912233c491871b3d84c89A494BD9e" as const;
+const ERC8004_DEPLOYER = "0x15896e731c51ecB7BdB1447600DF126ea1d6969A".toLowerCase();
+const ERC8004_SCAN_START = 2200;
+const ERC8004_SCAN_END = 3500;
+const ERC8004_TOKEN_ABI = [
+  {
+    type: "function",
+    name: "ownerOf",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "tokenURI",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [{ name: "", type: "string" }],
+    stateMutability: "view",
+  },
+] as const;
+
+const EMPTY_BUDGET_STATE = {
+  policy: "normal",
+  reasons: [],
+  context: "unavailable",
+  parentEthBalanceWei: "0",
+  parentEthBalance: "0.0000",
+  warningEth: "0.0300",
+  pauseEth: "0.0150",
+  veniceCalls: 0,
+  veniceTokens: 0,
+  warningTokens: 200000,
+  pauseTokens: 350000,
+  activeChildren: 0,
+  filecoinAvailable: false,
+  pauseProposalCreation: false,
+  pauseScaling: false,
+  pauseJudgeFlow: false,
+  lastUpdatedAt: null,
+};
 
 export const dynamic = "force-dynamic";
+
+function normalizeBudgetState(raw: any, context: string) {
+  return {
+    ...EMPTY_BUDGET_STATE,
+    ...raw,
+    reasons: Array.isArray(raw?.reasons) ? raw.reasons : EMPTY_BUDGET_STATE.reasons,
+    context,
+  };
+}
+
+function budgetStateFromSnapshot(snapshot: any) {
+  const runtimeBudget = snapshot?.runtimeBudget;
+  if (!runtimeBudget || typeof runtimeBudget !== "object") return null;
+  return normalizeBudgetState(runtimeBudget, "filecoin.state");
+}
+
+async function readEnsTextRecord(label: string, key: string): Promise<string> {
+  try {
+    const value = await serverClient.readContract({
+      address: ENS_REGISTRY,
+      abi: ENS_REGISTRY_ABI,
+      functionName: "getTextRecord",
+      args: [label, key],
+    });
+    return (value as string) || "";
+  } catch {
+    return "";
+  }
+}
+
+async function resolveSwarmBudgetMeta() {
+  let filecoinStateCid = await readEnsTextRecord("parent", "filecoin.state");
+  if (!filecoinStateCid) {
+    filecoinStateCid = KNOWN_FILECOIN_STATE_CID;
+  }
+
+  if (JUDGE_FLOW_PROXY_URL) {
+    try {
+      const res = await fetch(`${JUDGE_FLOW_PROXY_URL}/budget`, {
+        cache: "no-store",
+        headers: { accept: "application/json" },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          filecoinStateCid: data?.filecoinStateCid || filecoinStateCid,
+          budgetState: normalizeBudgetState(data, data?.context || "proxy_runtime"),
+        };
+      }
+    } catch {}
+  }
+
+  if (existsSync(BUDGET_STATE_PATH)) {
+    const raw = JSON.parse(readFileSync(BUDGET_STATE_PATH, "utf-8"));
+    return {
+      filecoinStateCid,
+      budgetState: normalizeBudgetState(raw, raw?.context || "local_runtime"),
+    };
+  }
+
+  try {
+    const payload = await fetchStorageObject(filecoinStateCid);
+    const budgetState = budgetStateFromSnapshot(payload.data);
+    if (budgetState) {
+      return { filecoinStateCid, budgetState };
+    }
+  } catch {}
+
+  return {
+    filecoinStateCid,
+    budgetState: normalizeBudgetState(null, "unavailable"),
+  };
+}
+
+async function resolveErc8004Ids(children: Array<{ ensLabel: string; childAddr: string }>) {
+  const labelsKey = children
+    .map((child) => `${child.ensLabel.toLowerCase()}@${child.childAddr.toLowerCase()}`)
+    .sort()
+    .join("|");
+  const cacheKey = `swarm:erc8004:${labelsKey}`;
+  const cached = getCached<Record<string, string>>(cacheKey);
+  if (cached) return cached;
+
+  const labelToAddr = new Map<string, string>();
+  for (const child of children) {
+    const label = child.ensLabel.toLowerCase();
+    const base = label.replace(/-v\d+$/, "");
+    const addr = child.childAddr.toLowerCase();
+    labelToAddr.set(label, addr);
+    labelToAddr.set(base, addr);
+  }
+
+  const result: Record<string, string> = {};
+  for (let batchStart = ERC8004_SCAN_START; batchStart <= ERC8004_SCAN_END; batchStart += 20) {
+    const batchEnd = Math.min(batchStart + 19, ERC8004_SCAN_END);
+    const ids = Array.from({ length: batchEnd - batchStart + 1 }, (_, i) => BigInt(batchStart + i));
+    const [owners, uris] = await Promise.all([
+      Promise.all(
+        ids.map((id) =>
+          serverClient.readContract({
+            address: ERC8004_REGISTRY,
+            abi: ERC8004_TOKEN_ABI,
+            functionName: "ownerOf",
+            args: [id],
+          }).catch(() => null)
+        )
+      ),
+      Promise.all(
+        ids.map((id) =>
+          serverClient.readContract({
+            address: ERC8004_REGISTRY,
+            abi: ERC8004_TOKEN_ABI,
+            functionName: "tokenURI",
+            args: [id],
+          }).catch(() => null)
+        )
+      ),
+    ]);
+
+    let allNull = true;
+    owners.forEach((owner, idx) => {
+      if (owner) allNull = false;
+      if (!owner || (owner as string).toLowerCase() !== ERC8004_DEPLOYER) return;
+
+      const rawUri = uris[idx] as string | null;
+      if (!rawUri) return;
+
+      let uri = rawUri;
+      if (uri.startsWith("data:application/json;base64,")) {
+        try {
+          uri = JSON.parse(Buffer.from(uri.slice(29), "base64").toString("utf-8")).name || uri;
+        } catch {}
+      }
+
+      const match = uri.match(/^spawn:\/\/([^.?]+)\.spawn\.eth/i);
+      if (!match) return;
+
+      const addr = labelToAddr.get(match[1].toLowerCase());
+      if (addr) {
+        result[addr] = ids[idx].toString();
+      }
+    });
+
+    if (allNull || Object.keys(result).length >= children.length) break;
+  }
+
+  setCache(cacheKey, result, ERC8004_CACHE_TTL);
+  return result;
+}
+
+async function enrichActiveChild(child: any) {
+  let alignmentScore = "0";
+  let voteCount = "0";
+  let lastVoteTimestamp = "0";
+  let forVotes = 0;
+  let againstVotes = 0;
+  let abstainVotes = 0;
+
+  try {
+    const [score, cnt, history] = await Promise.all([
+      serverClient.readContract({
+        address: child.childAddr,
+        abi: ChildGovernorABI,
+        functionName: "alignmentScore",
+      }),
+      serverClient.readContract({
+        address: child.childAddr,
+        abi: ChildGovernorABI,
+        functionName: "getVoteCount",
+      }),
+      serverClient.readContract({
+        address: child.childAddr,
+        abi: ChildGovernorABI,
+        functionName: "getVotingHistory",
+      }),
+    ]);
+
+    alignmentScore = (score as bigint).toString();
+    voteCount = (cnt as bigint).toString();
+    const votingHistory = history as any[];
+    if (votingHistory.length > 0) {
+      lastVoteTimestamp = votingHistory[votingHistory.length - 1].timestamp.toString();
+    }
+    for (const vote of votingHistory) {
+      if (vote.support === 1) forVotes++;
+      else if (vote.support === 0) againstVotes++;
+      else abstainVotes++;
+    }
+  } catch {}
+
+  return {
+    id: child.id.toString(),
+    childAddr: child.childAddr,
+    governance: child.governance,
+    budget: child.budget.toString(),
+    maxGasPerVote: child.maxGasPerVote.toString(),
+    ensLabel: child.ensLabel,
+    active: true,
+    alignmentScore,
+    voteCount,
+    lastVoteTimestamp,
+    forVotes,
+    againstVotes,
+    abstainVotes,
+  };
+}
+
+async function enrichTerminatedChild(child: any) {
+  let alignmentScore = "0";
+  let voteCount = "0";
+
+  try {
+    const [score, cnt] = await Promise.all([
+      serverClient.readContract({
+        address: child.childAddr,
+        abi: ChildGovernorABI,
+        functionName: "alignmentScore",
+      }),
+      serverClient.readContract({
+        address: child.childAddr,
+        abi: ChildGovernorABI,
+        functionName: "getVoteCount",
+      }),
+    ]);
+    alignmentScore = (score as bigint).toString();
+    voteCount = (cnt as bigint).toString();
+  } catch {}
+
+  return {
+    id: child.id.toString(),
+    childAddr: child.childAddr,
+    governance: child.governance,
+    budget: child.budget.toString(),
+    maxGasPerVote: child.maxGasPerVote.toString(),
+    ensLabel: child.ensLabel,
+    active: child.active,
+    alignmentScore,
+    voteCount,
+    lastVoteTimestamp: "0",
+    forVotes: 0,
+    againstVotes: 0,
+    abstainVotes: 0,
+  };
+}
 
 export async function GET() {
   try {
@@ -19,55 +327,21 @@ export async function GET() {
       functionName: "getActiveChildren",
     })) as any[];
 
-    const activeEnriched = await Promise.all(
-      activeRaw.map(async (child) => {
-        let alignmentScore = "0", voteCount = "0", lastVoteTimestamp = "0";
-        let forVotes = 0, againstVotes = 0, abstainVotes = 0;
-        try {
-          const [score, cnt, history] = await Promise.all([
-            serverClient.readContract({ address: child.childAddr, abi: ChildGovernorABI, functionName: "alignmentScore" }),
-            serverClient.readContract({ address: child.childAddr, abi: ChildGovernorABI, functionName: "getVoteCount" }),
-            serverClient.readContract({ address: child.childAddr, abi: ChildGovernorABI, functionName: "getVotingHistory" }),
-          ]);
-          alignmentScore = (score as bigint).toString();
-          voteCount = (cnt as bigint).toString();
-          if ((history as any[]).length > 0) lastVoteTimestamp = (history as any[])[(history as any[]).length - 1].timestamp.toString();
-          for (const v of history as any[]) {
-            if (v.support === 1) forVotes++;
-            else if (v.support === 0) againstVotes++;
-            else abstainVotes++;
-          }
-        } catch {}
-        return {
-          id: child.id.toString(),
-          childAddr: child.childAddr,
-          governance: child.governance,
-          budget: child.budget.toString(),
-          maxGasPerVote: child.maxGasPerVote.toString(),
-          ensLabel: child.ensLabel,
-          active: true,
-          alignmentScore,
-          voteCount,
-          lastVoteTimestamp,
-          forVotes,
-          againstVotes,
-          abstainVotes,
-        };
+    const activeEnriched = await Promise.all(activeRaw.map(enrichActiveChild));
+
+    const totalCount = Number(
+      await serverClient.readContract({
+        address: CONTRACTS.SpawnFactory.address as `0x${string}`,
+        abi: SpawnFactoryABI,
+        functionName: "childCount",
       })
     );
 
-    // Terminated children (last 60)
-    const totalCount = Number(await serverClient.readContract({
-      address: CONTRACTS.SpawnFactory.address as `0x${string}`,
-      abi: SpawnFactoryABI,
-      functionName: "childCount",
-    }));
-
-    const activeIds = new Set(activeRaw.map((c: any) => Number(c.id)));
+    const activeIds = new Set(activeRaw.map((child: any) => Number(child.id)));
     const terminatedStart = Math.max(1, totalCount - 60);
     const terminatedIds: number[] = [];
-    for (let i = terminatedStart; i <= totalCount; i++) {
-      if (!activeIds.has(i)) terminatedIds.push(i);
+    for (let id = terminatedStart; id <= totalCount; id++) {
+      if (!activeIds.has(id)) terminatedIds.push(id);
     }
 
     const rawTerminated = await Promise.all(
@@ -82,38 +356,62 @@ export async function GET() {
     );
 
     const terminatedEnriched = await Promise.all(
-      rawTerminated.filter((c): c is NonNullable<typeof c> => !!c && !activeIds.has(Number((c as any).id))).map(async (child: any) => {
-        let alignmentScore = "0", voteCount = "0";
-        try {
-          const [score, cnt] = await Promise.all([
-            serverClient.readContract({ address: child.childAddr, abi: ChildGovernorABI, functionName: "alignmentScore" }),
-            serverClient.readContract({ address: child.childAddr, abi: ChildGovernorABI, functionName: "getVoteCount" }),
-          ]);
-          alignmentScore = (score as bigint).toString();
-          voteCount = (cnt as bigint).toString();
-        } catch {}
-        return {
-          id: child.id.toString(),
-          childAddr: child.childAddr,
-          governance: child.governance,
-          budget: child.budget.toString(),
-          maxGasPerVote: child.maxGasPerVote.toString(),
-          ensLabel: child.ensLabel,
-          active: child.active,
-          alignmentScore,
-          voteCount,
-          lastVoteTimestamp: "0",
-          forVotes: 0,
-          againstVotes: 0,
-          abstainVotes: 0,
-        };
-      })
+      rawTerminated
+        .filter((child): child is NonNullable<typeof child> => !!child && !activeIds.has(Number((child as any).id)))
+        .map(enrichTerminatedChild)
     );
 
-    const result = [...activeEnriched, ...terminatedEnriched];
+    const children = [...activeEnriched, ...terminatedEnriched];
+
+    const [budgetMeta, erc8004Ids, metadataRows] = await Promise.all([
+      resolveSwarmBudgetMeta(),
+      resolveErc8004Ids(children),
+      Promise.all(
+        children.map(async (child) => {
+          const [delegationHash, revokedDelegation, filecoinIdentityCid] = await Promise.all([
+            readEnsTextRecord(child.ensLabel, "erc7715.delegation"),
+            readEnsTextRecord(child.ensLabel, "erc7715.delegation.revoked"),
+            readEnsTextRecord(child.ensLabel, "filecoin.identity"),
+          ]);
+
+          return {
+            label: child.ensLabel,
+            delegationHash,
+            revokedDelegation,
+            filecoinIdentityCid,
+          };
+        })
+      ),
+    ]);
+
+    const delegationHashes: Record<string, string> = {};
+    const revokedDelegations: string[] = [];
+    const filecoinIdentityCids: Record<string, string> = {};
+
+    for (const row of metadataRows) {
+      if (row.delegationHash) delegationHashes[row.label] = row.delegationHash;
+      if (row.revokedDelegation) revokedDelegations.push(row.label);
+      if (row.filecoinIdentityCid) filecoinIdentityCids[row.label] = row.filecoinIdentityCid;
+    }
+
+    const result = {
+      children,
+      meta: {
+        filecoinStateCid: budgetMeta.filecoinStateCid,
+        budgetState: budgetMeta.budgetState,
+        delegationHashes,
+        revokedDelegations,
+        filecoinIdentityCids,
+        erc8004Ids,
+      },
+    };
+
     setCache(CACHE_KEY, result, CACHE_TTL);
     return NextResponse.json(result);
   } catch (err: any) {
-    return NextResponse.json({ error: err?.message || "Failed to fetch swarm" }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "Failed to fetch swarm" },
+      { status: 500 }
+    );
   }
 }

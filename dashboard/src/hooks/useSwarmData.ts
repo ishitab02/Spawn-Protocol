@@ -22,29 +22,138 @@ export interface ChildInfo {
   abstainVotes: number;
 }
 
+export interface BudgetState {
+  policy: "normal" | "throttled" | "paused";
+  reasons: string[];
+  parentEthBalance: string;
+  warningEth: string;
+  pauseEth: string;
+  veniceCalls: number;
+  veniceTokens: number;
+  warningTokens: number;
+  pauseTokens: number;
+  activeChildren: number;
+  filecoinAvailable: boolean;
+  pauseProposalCreation: boolean;
+  pauseScaling: boolean;
+  pauseJudgeFlow: boolean;
+  lastUpdatedAt?: string | null;
+}
+
+export interface SwarmMeta {
+  filecoinStateCid: string | null;
+  budgetState: BudgetState | null;
+  delegationHashes: Map<string, string>;
+  revokedDelegations: Set<string>;
+  filecoinIdentityCids: Map<string, string>;
+  erc8004Ids: Map<string, bigint>;
+}
+
+type RawSwarmResponse = {
+  children?: any[];
+  meta?: {
+    filecoinStateCid?: string | null;
+    budgetState?: BudgetState | null;
+    delegationHashes?: Record<string, string>;
+    revokedDelegations?: string[];
+    filecoinIdentityCids?: Record<string, string>;
+    erc8004Ids?: Record<string, string>;
+  };
+  error?: string;
+};
+
+type SwarmResponse = {
+  children: ChildInfo[];
+  meta: SwarmMeta;
+};
+
+const EMPTY_META: SwarmMeta = {
+  filecoinStateCid: null,
+  budgetState: null,
+  delegationHashes: new Map(),
+  revokedDelegations: new Set(),
+  filecoinIdentityCids: new Map(),
+  erc8004Ids: new Map(),
+};
+
+const CLIENT_CACHE_TTL = 12_000;
+const POLL_INTERVAL_MS = 20_000;
+
+let swarmCache: { data: SwarmResponse; fetchedAt: number } | null = null;
+let swarmRequest: Promise<SwarmResponse> | null = null;
+
+function normalizeChild(c: any): ChildInfo {
+  return {
+    ...c,
+    id: BigInt(c.id),
+    budget: BigInt(c.budget),
+    maxGasPerVote: BigInt(c.maxGasPerVote),
+    alignmentScore: BigInt(c.alignmentScore),
+    voteCount: BigInt(c.voteCount),
+    lastVoteTimestamp: BigInt(c.lastVoteTimestamp),
+  };
+}
+
+function normalizeSwarmResponse(raw: RawSwarmResponse): SwarmResponse {
+  return {
+    children: Array.isArray(raw.children) ? raw.children.map(normalizeChild) : [],
+    meta: {
+      filecoinStateCid: raw.meta?.filecoinStateCid ?? null,
+      budgetState: raw.meta?.budgetState ?? null,
+      delegationHashes: new Map(Object.entries(raw.meta?.delegationHashes ?? {})),
+      revokedDelegations: new Set(raw.meta?.revokedDelegations ?? []),
+      filecoinIdentityCids: new Map(Object.entries(raw.meta?.filecoinIdentityCids ?? {})),
+      erc8004Ids: new Map(
+        Object.entries(raw.meta?.erc8004Ids ?? {}).map(([addr, id]) => [addr, BigInt(id)])
+      ),
+    },
+  };
+}
+
+async function fetchSwarmPayload(force = false): Promise<SwarmResponse> {
+  const now = Date.now();
+  if (!force && swarmCache && now - swarmCache.fetchedAt < CLIENT_CACHE_TTL) {
+    return swarmCache.data;
+  }
+
+  if (swarmRequest) return swarmRequest;
+
+  swarmRequest = (async () => {
+    const res = await fetch("/api/swarm", { cache: "no-store" });
+    const data: RawSwarmResponse = await res.json();
+    if (!res.ok) throw new Error(data.error || `API ${res.status}`);
+    if (data.error) throw new Error(data.error);
+
+    const normalized = normalizeSwarmResponse(data);
+    swarmCache = { data: normalized, fetchedAt: Date.now() };
+    return normalized;
+  })();
+
+  try {
+    return await swarmRequest;
+  } finally {
+    swarmRequest = null;
+  }
+}
+
 export function useSwarmData() {
-  const [children, setChildren] = useState<ChildInfo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [children, setChildren] = useState<ChildInfo[]>(() => swarmCache?.data.children ?? []);
+  const [meta, setMeta] = useState<SwarmMeta>(() => swarmCache?.data.meta ?? EMPTY_META);
+  const [loading, setLoading] = useState(() => !swarmCache);
   const [error, setError] = useState<string | null>(null);
   const [justVotedSet, setJustVotedSet] = useState<Set<string>>(new Set());
   const prevVoteCounts = useRef<Map<string, number>>(new Map());
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (options?: { force?: boolean; background?: boolean }) => {
     try {
-      const res = await fetch("/api/swarm");
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
+      const shouldShowLoading =
+        !options?.background &&
+        !swarmCache &&
+        children.length === 0;
+      if (shouldShowLoading) setLoading(true);
 
-      const enriched: ChildInfo[] = data.map((c: any) => ({
-        ...c,
-        id: BigInt(c.id),
-        budget: BigInt(c.budget),
-        maxGasPerVote: BigInt(c.maxGasPerVote),
-        alignmentScore: BigInt(c.alignmentScore),
-        voteCount: BigInt(c.voteCount),
-        lastVoteTimestamp: BigInt(c.lastVoteTimestamp),
-      }));
+      const payload = await fetchSwarmPayload(options?.force);
+      const enriched = payload.children;
 
       // Detect which children just had their vote count increase
       const newlyVoted = new Set<string>();
@@ -70,22 +179,25 @@ export function useSwarmData() {
       }
 
       setChildren(enriched);
+      setMeta(payload.meta);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch swarm data");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [children.length]);
 
   useEffect(() => {
-    setLoading(true);
-    fetchData();
-    const interval = setInterval(fetchData, 15000);
+    fetchData({ background: !!swarmCache });
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      fetchData({ force: true, background: true });
+    }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  return { children, loading, error, refetch: fetchData, justVotedSet };
+  return { children, meta, loading, error, refetch: fetchData, justVotedSet };
 }
 
 export function useChildData(childId: string) {
