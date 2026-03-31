@@ -160,6 +160,19 @@ const venice = new OpenAI({
 | SpawnFactory | `0xC06E6615E2bBBf795ae17763719dCB9b82cd781C` |
 | TimeLock | `0x68686865af7287137818C12E5680AA04A8Fd525a` |
 
+### Filecoin Calibration Testnet (chain 314159)
+| Contract | Address |
+|----------|---------|
+| MockGovernor (Uniswap) | `0x036c41a368680DD3044E6846Bf17Fe34e730B60d` |
+| MockGovernor (Lido) | `0xfe2D5FA7531C9b1370E09C4c79b4936276A01e14` |
+| MockGovernor (ENS) | `0x0050b7cd89F7206AF0d3F734c20fFFd434090ECE` |
+| ParentTreasury | `0xE183f49Fc931D3e43bEAF49A5250399C52714F21` |
+| ChildGovernor (impl) | `0xF791f0899b65F7A8eB2d9317C75D2d8D7A1060d2` |
+| SpawnFactory | `0xE912007584b3A731378fE2ad04058b40410d1f4C` |
+| TimeLock | `0x11887863b89F1bE23A650909135ffaCFab666803` |
+
+Explorer: https://calibration.filfox.info/en/address/<address>
+
 ## Tech Stack
 - **Contracts:** Foundry + Solidity (OpenZeppelin for Clones, Governor interface)
 - **Agent Runtime:** TypeScript + viem + openai (with Venice base URL)
@@ -167,8 +180,9 @@ const venice = new OpenAI({
 - **Encryption:** Lit Protocol SDK (@lit-protocol/lit-node-client)
 - **Delegations:** MetaMask Delegation Toolkit (@metamask/delegation-toolkit)
 - **Identity:** ERC-8004 on Base Sepolia
+- **Storage:** Filecoin Calibration via Synapse SDK (@filoz/synapse-sdk) — agent state snapshots, termination reports, vote rationale, agent logs
 - **Dashboard:** Next.js 14 + React + viem + Tailwind CSS
-- **Chains:** Base Sepolia (primary) + Celo Sepolia (secondary)
+- **Chains:** Base Sepolia (primary) + Celo Sepolia (secondary) + Filecoin Calibration (storage + governance)
 
 ## Project Structure
 ```
