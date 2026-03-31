@@ -247,6 +247,18 @@ Operational details:
 - Optional override: `FILECOIN_RPC_URL`
 - Piece CIDs are explorer-linked through Filscan, not IPFS gateways and not Filfox deal URLs
 
+#### Known Live CIDs (Filecoin Calibration Testnet)
+
+| Type | Piece CID | Timestamp |
+|------|-----------|-----------|
+| Agent log snapshot | [`bafkzcibe6tvqqdummqlqkuzfj6p26agdz4l4ve6ram6vp6uvibdjhz4jux4ustspg4`](https://calibration.filscan.io/en/cid/bafkzcibe6tvqqdummqlqkuzfj6p26agdz4l4ve6ram6vp6uvibdjhz4jux4ustspg4) | 2026-03-31 |
+| Judge termination report | [`bafkzcibdwmeaoosgc5atz3ea6zg4sgajkk64gnm6do3ocvy7w6iu2aq65gji74q7`](https://calibration.filscan.io/en/cid/bafkzcibdwmeaoosgc5atz3ea6zg4sgajkk64gnm6do3ocvy7w6iu2aq65gji74q7) | 2026-03-31T18:57Z |
+| Judge termination report | [`bafkzcibdyyeap67ttem7n7sy7kcokvt3rknl5wl2slx2n7c3s4x67vkgys5jbayy`](https://calibration.filscan.io/en/cid/bafkzcibdyyeap67ttem7n7sy7kcokvt3rknl5wl2slx2n7c3s4x67vkgys5jbayy) | 2026-03-31T20:07Z |
+| Judge termination report | [`bafkzcibd2ueaplkrcruuyfa4r7tkxpyxwytlpmax72yqgdhrkmzpky4j6nvlvez3`](https://calibration.filscan.io/en/cid/bafkzcibd2ueaplkrcruuyfa4r7tkxpyxwytlpmax72yqgdhrkmzpky4j6nvlvez3) | 2026-03-31T18:51Z |
+| Judge termination report | [`bafkzcibdqacqppifmj4vdljgaqow3tkjs5qlpj2yvjnadfsjkxt26iceq34jf6yi`](https://calibration.filscan.io/en/cid/bafkzcibdqacqppifmj4vdljgaqow3tkjs5qlpj2yvjnadfsjkxt26iceq34jf6yi) | 2026-03-31T18:20Z |
+
+All CIDs stored via `@filoz/synapse-sdk` against Filecoin Calibration Testnet (chain 314159). Viewable in the dashboard at `/storage/<cid>`.
+
 This branch fits Filecoin's core interests directly:
 
 - onchain agent registry backed by Filecoin metadata
