@@ -8,6 +8,10 @@ const CACHE_TTL = 10_000; // 10s cache
 
 export const dynamic = "force-dynamic";
 
+function isJudgeProofLabel(label: string | null | undefined) {
+  return !!label && label.startsWith("judge-proof-");
+}
+
 export async function GET() {
   try {
     const cached = getCached<any>(CACHE_KEY);
@@ -114,6 +118,9 @@ export async function GET() {
       );
 
       for (const { child, history } of childHistories) {
+        if (isJudgeProofLabel(child.ensLabel)) {
+          continue;
+        }
         const govAddr = child.governance.toLowerCase();
         for (const vote of history as any[]) {
           const matching = proposalMap.get(`${govAddr}-${vote.proposalId.toString()}`);
@@ -125,6 +132,33 @@ export async function GET() {
             });
           }
         }
+      }
+
+      for (const proposal of allProposals) {
+        const totalVotes =
+          Number(proposal.forVotes) +
+          Number(proposal.againstVotes) +
+          Number(proposal.abstainVotes);
+        if (totalVotes > 0 || proposal.voters.length === 0) {
+          continue;
+        }
+
+        let forVotes = 0;
+        let againstVotes = 0;
+        let abstainVotes = 0;
+        for (const voter of proposal.voters) {
+          if (voter.support === 1) {
+            forVotes += 1;
+          } else if (voter.support === 0) {
+            againstVotes += 1;
+          } else {
+            abstainVotes += 1;
+          }
+        }
+
+        proposal.forVotes = String(forVotes);
+        proposal.againstVotes = String(againstVotes);
+        proposal.abstainVotes = String(abstainVotes);
       }
     } catch {}
 

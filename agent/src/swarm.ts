@@ -453,7 +453,7 @@ async function initChain(config: ChainConfig) {
   }
 
   // Check if children already exist — skip spawning if so
-  const existingChildren = (await config.readClient.readContract({
+  let existingChildren = (await config.readClient.readContract({
     address: config.factory, abi: SpawnFactoryABI, functionName: "getActiveChildCount",
   })) as bigint;
 
@@ -466,6 +466,16 @@ async function initChain(config: ChainConfig) {
   if (JUDGE_FLOW_PRIORITY_BOOT) {
     console.log(`[Judge] Priority boot enabled — deferring normal child spawn and process reattachment`);
     return;
+  }
+
+  if (existingChildren > 0n) {
+    await cleanupStaleJudgeChildren(config);
+    existingChildren = (await config.readClient.readContract({
+      address: config.factory,
+      abi: SpawnFactoryABI,
+      functionName: "getActiveChildCount",
+    })) as bigint;
+    console.log(`[${config.name}] Active children after judge cleanup: ${existingChildren}`);
   }
 
   // Only spawn if no children exist yet
@@ -577,6 +587,10 @@ async function initChain(config: ChainConfig) {
   console.log(`[${config.name}] Active children: ${children.length}`);
 
   for (const child of children) {
+    if (isJudgeChildLabel(child.ensLabel)) {
+      console.log(`  ${child.ensLabel}: skipping judge proof child during normal process reattachment`);
+      continue;
+    }
     const key = `${config.name}:${child.ensLabel}`;
     if (!childProcesses.has(key)) {
       let childKey = childWalletKeys.get(child.ensLabel);
@@ -1447,8 +1461,18 @@ async function executeJudgeFlow(config: ChainConfig, queuedState: JudgeFlowState
         lineageSourceCid: completed.lineageSourceCid,
       }
     );
+    try {
+      await cleanupStaleJudgeChildren(config);
+    } catch (cleanupErr: any) {
+      console.log(`[Judge] Post-run cleanup failed: ${cleanupErr?.message?.slice(0, 60)}`);
+    }
     activeJudgeRun = null;
   } catch (err: any) {
+    try {
+      await cleanupStaleJudgeChildren(config);
+    } catch (cleanupErr: any) {
+      console.log(`[Judge] Failed-run cleanup failed: ${cleanupErr?.message?.slice(0, 60)}`);
+    }
     failJudgeRun(err?.message?.slice(0, 200) || "Judge flow failed");
   }
 }

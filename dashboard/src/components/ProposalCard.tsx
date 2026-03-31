@@ -51,16 +51,24 @@ function supportColor(support: number): string {
 }
 
 function supportChipColor(support: number): string {
-  if (support === 1) return "text-green-300 border-green-400/30 bg-green-400/10";
-  if (support === 0) return "text-red-300 border-red-400/30 bg-red-400/10";
-  return "text-yellow-300 border-yellow-400/30 bg-yellow-400/10";
+  if (support === 1) return "text-green-200 border-green-500/60 bg-green-500/15";
+  if (support === 0) return "text-red-200 border-red-500/60 bg-red-500/15";
+  return "text-yellow-200 border-yellow-500/60 bg-yellow-500/15";
 }
 
 export function ProposalCard({ proposal }: ProposalCardProps) {
-  const total =
-    Number(proposal.forVotes) +
-    Number(proposal.againstVotes) +
-    Number(proposal.abstainVotes);
+  const visibleVoters = proposal.voters.filter((v) => !v.childLabel.startsWith("judge-proof-"));
+  const rawForVotes = Number(proposal.forVotes);
+  const rawAgainstVotes = Number(proposal.againstVotes);
+  const rawAbstainVotes = Number(proposal.abstainVotes);
+  const rawTotal = rawForVotes + rawAgainstVotes + rawAbstainVotes;
+  const derivedForVotes = visibleVoters.filter((v) => v.support === 1).length;
+  const derivedAgainstVotes = visibleVoters.filter((v) => v.support === 0).length;
+  const derivedAbstainVotes = visibleVoters.filter((v) => v.support !== 0 && v.support !== 1).length;
+  const effectiveForVotes = rawTotal > 0 ? rawForVotes : derivedForVotes;
+  const effectiveAgainstVotes = rawTotal > 0 ? rawAgainstVotes : derivedAgainstVotes;
+  const effectiveAbstainVotes = rawTotal > 0 ? rawAbstainVotes : derivedAbstainVotes;
+  const total = effectiveForVotes + effectiveAgainstVotes + effectiveAbstainVotes;
 
   const forPct = total > 0 ? (Number(proposal.forVotes) / total) * 100 : 0;
   const againstPct =
@@ -120,7 +128,7 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
     const majorityPct = Math.max(forPct, againstPct, abstainPct);
     const splitScore = Math.round((1 - (majorityPct - 50) / 50) * 100);
     // Voter engagement: more voters = harder (capped at 9)
-    const voterScore = Math.min(proposal.voters.length / 9, 1) * 100;
+    const voterScore = Math.min(visibleVoters.length / 9, 1) * 100;
     // Description length proxy for complexity
     const descLen = (proposal.description || "").length;
     const complexityScore = Math.min(descLen / 1500, 1) * 100;
@@ -246,14 +254,14 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs font-mono">
             <span className="text-green-400">
-              FOR: {proposal.forVotes.toString()} ({forPct.toFixed(0)}%)
+              FOR: {effectiveForVotes} ({forPct.toFixed(0)}%)
             </span>
             <span className="text-red-400">
-              AGAINST: {proposal.againstVotes.toString()} ({againstPct.toFixed(0)}%)
+              AGAINST: {effectiveAgainstVotes} ({againstPct.toFixed(0)}%)
             </span>
-            {Number(proposal.abstainVotes) > 0 && (
+            {effectiveAbstainVotes > 0 && (
               <span className="text-yellow-400">
-                ABSTAIN: {proposal.abstainVotes.toString()} ({abstainPct.toFixed(0)}%)
+                ABSTAIN: {effectiveAbstainVotes} ({abstainPct.toFixed(0)}%)
               </span>
             )}
           </div>
@@ -266,14 +274,14 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
       )}
 
       {/* Voter breakdown */}
-      {proposal.voters.length > 0 && (
+      {visibleVoters.length > 0 && (
         <div className="mb-3 border-t border-gray-800 pt-2">
           <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1.5">Agent Votes</p>
           <div className="flex flex-wrap gap-2">
-            {proposal.voters.map((v, i) => (
+            {visibleVoters.map((v, i) => (
               <span
                 key={i}
-                className={`text-xs font-mono border rounded px-1.5 py-0.5 ${supportChipColor(v.support)}`}
+                className={`text-xs font-mono font-semibold border rounded px-1.5 py-0.5 whitespace-nowrap ${supportChipColor(v.support)}`}
                 title={`${v.childAddr}`}
               >
                 {ensName(v.childLabel) ?? formatAddress(v.childAddr)}: {supportLabel(v.support)}
