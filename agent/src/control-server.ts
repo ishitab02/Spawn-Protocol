@@ -113,6 +113,26 @@ const EMPTY_STATE = {
   events: [],
 };
 
+const EMPTY_BUDGET_STATE = {
+  policy: "normal",
+  reasons: [],
+  context: "unavailable",
+  parentEthBalanceWei: "0",
+  parentEthBalance: "0.0000",
+  warningEth: "0.0300",
+  pauseEth: "0.0150",
+  veniceCalls: 0,
+  veniceTokens: 0,
+  warningTokens: 200000,
+  pauseTokens: 350000,
+  activeChildren: 0,
+  filecoinAvailable: false,
+  pauseProposalCreation: false,
+  pauseScaling: false,
+  pauseJudgeFlow: false,
+  lastUpdatedAt: null,
+};
+
 function json(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader("content-type", "application/json");
@@ -307,6 +327,15 @@ export function startControlServer() {
     if (method === "GET" && url.pathname === "/judge-flow") {
       const current = safeReadJson<JudgeFlowState>(JUDGE_FLOW_CONTROL_PATH);
       return json(res, 200, current ? { ...EMPTY_STATE, ...current, events: current.events ?? [] } : EMPTY_STATE);
+    }
+
+    if (method === "GET" && url.pathname === "/budget") {
+      const current = safeReadJson<any>(BUDGET_STATE_PATH);
+      return json(
+        res,
+        200,
+        current ? { ...EMPTY_BUDGET_STATE, ...current, context: current.context || "agent_runtime" } : EMPTY_BUDGET_STATE
+      );
     }
 
     if (method === "POST" && url.pathname === "/judge-flow/start") {

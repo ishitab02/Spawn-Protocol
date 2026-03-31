@@ -5,6 +5,7 @@ import { serverClient } from "@/lib/server-client";
 import { fetchStorageObject } from "@/lib/storage-server";
 
 export const dynamic = "force-dynamic";
+const JUDGE_FLOW_PROXY_URL = process.env.JUDGE_FLOW_PROXY_URL?.replace(/\/$/, "");
 
 const BUDGET_STATE_PATH = join(process.cwd(), "..", "runtime_budget_state.json");
 const ENS_REGISTRY = "0x29170A43352D65329c462e6cDacc1c002419331D";
@@ -58,6 +59,15 @@ function budgetStateFromSnapshot(snapshot: any) {
 
 export async function GET() {
   try {
+    if (JUDGE_FLOW_PROXY_URL) {
+      const res = await fetch(`${JUDGE_FLOW_PROXY_URL}/budget`, {
+        cache: "no-store",
+        headers: { accept: "application/json" },
+      });
+      const data = await res.json();
+      return NextResponse.json(data, { status: res.status });
+    }
+
     if (!existsSync(BUDGET_STATE_PATH)) {
       try {
         const cid = await serverClient.readContract({
