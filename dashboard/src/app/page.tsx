@@ -10,14 +10,6 @@ import { useChainContext } from "@/context/ChainContext";
 // Known Filecoin Calibration CIDs — stored during live swarm runs.
 // Used as fallbacks when ENS text records haven't been updated yet (swarm not running).
 const KNOWN_FILECOIN_STATE_CID = "bafkzcibewtrqqdvlybjzqok2q5dgbdiddltdhj5asyhfnavmvowvqpeuckuuraq4ce";
-const KNOWN_FILECOIN_LOG_CID   = "bafkzcibewtrqqdvlybjzqok2q5dgbdiddltdhj5asyhfnavmvowvqpeuckuuraq4ce";
-// Judge flow termination report CIDs (Filecoin Calibration, Synapse SDK)
-const JUDGE_TERMINATION_CIDS = [
-  { runId: "judge-1774983203955", cid: "bafkzcibdwmeaoosgc5atz3ea6zg4sgajkk64gnm6do3ocvy7w6iu2aq65gji74q7", ts: "2026-03-31T18:57Z" },
-  { runId: "judge-1774987303217", cid: "bafkzcibdyyeap67ttem7n7sy7kcokvt3rknl5wl2slx2n7c3s4x67vkgys5jbayy", ts: "2026-03-31T20:07Z" },
-  { runId: "judge-1774982842194", cid: "bafkzcibd2ueaplkrcruuyfa4r7tkxpyxwytlpmax72yqgdhrkmzpky4j6nvlvez3", ts: "2026-03-31T18:51Z" },
-  { runId: "judge-1774980935275", cid: "bafkzcibdqacqppifmj4vdljgaqow3tkjs5qlpj2yvjnadfsjkxt26iceq34jf6yi", ts: "2026-03-31T18:20Z" },
-];
 
 // ENS Registry for reading runtime-published text records
 const ENS_REGISTRY = "0x29170A43352D65329c462e6cDacc1c002419331D";
@@ -60,9 +52,7 @@ let erc8004IdsCache = new Map<string, bigint>();
 export default function SwarmPage() {
   const { children, loading, error, justVotedSet } = useSwarmData();
   const { client, explorerBase } = useChainContext();
-  const [ipfsCid, setIpfsCid] = useState<string | null>(null);
   const [filecoinStateCid, setFilecoinStateCid] = useState<string | null>(null);
-  const [filecoinAgentLogCid, setFilecoinAgentLogCid] = useState<string | null>(null);
   const [delegationHashes, setDelegationHashes] = useState<Map<string, string>>(new Map());
   const [budgetState, setBudgetState] = useState<BudgetState | null>(null);
   // Maps child contract address (lowercase) → ERC-8004 agentId
@@ -71,40 +61,21 @@ export default function SwarmPage() {
   // Maps child ensLabel → filecoin.identity CID
   const [filecoinIdentityCids, setFilecoinIdentityCids] = useState<Map<string, string>>(new Map());
 
-  // Fetch IPFS CID from ENS text record
+  // Fetch Filecoin state CID from ENS text record
   useEffect(() => {
-    client.readContract({
-      address: ENS_REGISTRY,
-      abi: ENS_REGISTRY_ABI,
-      functionName: "getTextRecord",
-      args: ["parent", "ipfs.agent_log"],
-    }).then((cid) => { if (cid) setIpfsCid(cid as string); }).catch(() => {});
-  }, [client]);
-
-  // Fetch Filecoin CIDs from ENS text records (state snapshot + agent log)
-  useEffect(() => {
-    const fetch = async () => {
+    const fetchState = async () => {
       try {
-        const [stateCid, logCid] = await Promise.all([
-          client.readContract({
-            address: ENS_REGISTRY,
-            abi: ENS_REGISTRY_ABI,
-            functionName: "getTextRecord",
-            args: ["parent", "filecoin.state"],
-          }),
-          client.readContract({
-            address: ENS_REGISTRY,
-            abi: ENS_REGISTRY_ABI,
-            functionName: "getTextRecord",
-            args: ["parent", "filecoin.agent_log"],
-          }),
-        ]);
+        const stateCid = await client.readContract({
+          address: ENS_REGISTRY,
+          abi: ENS_REGISTRY_ABI,
+          functionName: "getTextRecord",
+          args: ["parent", "filecoin.state"],
+        });
         setFilecoinStateCid((stateCid as string) || KNOWN_FILECOIN_STATE_CID);
-        setFilecoinAgentLogCid((logCid as string) || KNOWN_FILECOIN_LOG_CID);
       } catch {}
     };
-    fetch();
-    const interval = setInterval(fetch, 60_000);
+    fetchState();
+    const interval = setInterval(fetchState, 60_000);
     return () => clearInterval(interval);
   }, [client]);
 
@@ -317,48 +288,6 @@ export default function SwarmPage() {
               <span className="text-[10px] font-mono text-blue-400/30">chain 314159</span>
             </div>
           )}
-          {/* Filecoin agent log badge */}
-          {filecoinAgentLogCid && (
-            <a
-              href={storageViewerPath(filecoinAgentLogCid)}
-              className="flex items-center gap-2 border border-cyan-400/30 bg-cyan-400/5 rounded-lg px-4 py-2 hover:bg-cyan-400/10 transition-all"
-              title="Agent execution log stored on Filecoin via Synapse SDK"
-            >
-              <span className="text-cyan-400 text-sm">FIL Log</span>
-              <span className="text-xs font-mono text-cyan-300">Agent Log on Filecoin</span>
-              <span className="text-[10px] font-mono text-cyan-400/60">{filecoinAgentLogCid.slice(0, 12)}…</span>
-              <span className="text-cyan-400 text-xs">↗</span>
-            </a>
-          )}
-          {/* Judge flow Filecoin termination report CIDs — always shown */}
-          {JUDGE_TERMINATION_CIDS.map(({ runId, cid, ts }) => (
-            <a
-              key={cid}
-              href={storageViewerPath(cid)}
-              className="flex items-center gap-2 border border-blue-500/30 bg-blue-500/5 rounded-lg px-3 py-2 hover:bg-blue-500/10 transition-all"
-              title={`Judge run ${runId} — termination report stored on Filecoin Calibration via Synapse SDK`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-              <span className="text-blue-300 text-xs font-semibold">FIL</span>
-              <span className="text-[10px] font-mono text-blue-200/80">Termination</span>
-              <span className="text-[10px] font-mono text-blue-400/60">{cid.slice(0, 12)}…</span>
-              <span className="text-[10px] text-blue-400/40">{ts}</span>
-              <span className="text-blue-400 text-xs">↗</span>
-            </a>
-          ))}
-          {ipfsCid && (
-            <a
-              href={`https://ipfs.filebase.io/ipfs/${ipfsCid}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 border border-purple-400/30 bg-purple-400/5 rounded-lg px-4 py-2 hover:bg-purple-400/10 transition-all"
-            >
-              <span className="text-purple-400 text-sm">IPFS</span>
-              <span className="text-xs font-mono text-purple-300">Agent Log Pinned</span>
-              <span className="text-[10px] font-mono text-purple-400/60">{ipfsCid.slice(0, 12)}...</span>
-              <span className="text-purple-400 text-xs">↗</span>
-            </a>
-          )}
           {(() => {
             const activeLabels = new Set(children.filter(c => c.active).map(c => c.ensLabel));
             const activeDels = Array.from(delegationHashes.keys()).filter(k => !k.includes(":revoked") && activeLabels.has(k)).length;
@@ -440,6 +369,7 @@ export default function SwarmPage() {
 
         </>
       )}
+
 
       {error && (
         <div className="mb-6 border border-red-500/30 bg-red-500/10 rounded-lg px-4 py-3">

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { StorageInlinePreview } from "@/components/StorageInlinePreview";
 import { explorerTx, storageViewerPath } from "@/lib/contracts";
 
 type JudgeEvent = {
@@ -68,6 +69,55 @@ const STEP_ORDER = [
   { action: "judge_lineage_loaded", label: "Lineage memory loaded" },
   { action: "judge_flow_completed", label: "Run completed" },
 ] as const;
+
+const STEP_BADGES: Record<
+  (typeof STEP_ORDER)[number]["action"],
+  Array<{ label: string; className: string }>
+> = {
+  judge_flow_started: [
+    { label: "Agent Only", className: "border-amber-400/30 bg-amber-400/10 text-amber-300" },
+  ],
+  judge_child_spawned: [
+    { label: "ERC-8004 Identity", className: "border-indigo-400/30 bg-indigo-400/10 text-indigo-300" },
+    { label: "Agent Only", className: "border-amber-400/30 bg-amber-400/10 text-amber-300" },
+  ],
+  judge_proposal_seeded: [
+    { label: "Governance", className: "border-blue-400/30 bg-blue-400/10 text-blue-300" },
+    { label: "Crypto", className: "border-fuchsia-400/30 bg-fuchsia-400/10 text-fuchsia-300" },
+  ],
+  judge_vote_cast: [
+    { label: "AI + E2EE", className: "border-violet-400/30 bg-violet-400/10 text-violet-300" },
+    { label: "Let Agents Cook", className: "border-amber-400/30 bg-amber-400/10 text-amber-300" },
+  ],
+  judge_alignment_forced: [
+    { label: "AI Evaluation", className: "border-violet-400/30 bg-violet-400/10 text-violet-300" },
+  ],
+  judge_termination_report_filecoin: [
+    { label: "Filecoin Primary", className: "border-green-400/30 bg-green-400/10 text-green-300" },
+    { label: "Crypto", className: "border-fuchsia-400/30 bg-fuchsia-400/10 text-fuchsia-300" },
+  ],
+  judge_reputation_written: [
+    { label: "ERC-8004 Receipt", className: "border-indigo-400/30 bg-indigo-400/10 text-indigo-300" },
+  ],
+  judge_validation_written: [
+    { label: "ERC-8004 Receipt", className: "border-indigo-400/30 bg-indigo-400/10 text-indigo-300" },
+  ],
+  judge_child_terminated: [
+    { label: "Lifecycle", className: "border-red-400/30 bg-red-400/10 text-red-300" },
+    { label: "Agent Only", className: "border-amber-400/30 bg-amber-400/10 text-amber-300" },
+  ],
+  judge_child_respawned: [
+    { label: "AI Lineage", className: "border-cyan-400/30 bg-cyan-400/10 text-cyan-300" },
+    { label: "Agent Only", className: "border-amber-400/30 bg-amber-400/10 text-amber-300" },
+  ],
+  judge_lineage_loaded: [
+    { label: "AI Lineage", className: "border-cyan-400/30 bg-cyan-400/10 text-cyan-300" },
+    { label: "Filecoin", className: "border-green-400/30 bg-green-400/10 text-green-300" },
+  ],
+  judge_flow_completed: [
+    { label: "Canonical Proof", className: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" },
+  ],
+};
 
 const EMPTY_STATE: JudgeFlowState = {
   runId: null,
@@ -154,6 +204,29 @@ export default function JudgeFlowPage() {
       })),
     [state.events]
   );
+  const previewCids = useMemo(() => {
+    const seen = new Set<string>();
+    return [
+      state.filecoinCid
+        ? {
+            cid: state.filecoinCid,
+            title: "Termination Report Preview",
+            subtitle: "Termination memory written during the canonical proof run.",
+          }
+        : null,
+      state.lineageSourceCid && state.lineageSourceCid !== state.filecoinCid
+        ? {
+            cid: state.lineageSourceCid,
+            title: "Lineage Memory Preview",
+            subtitle: "Lineage context loaded by the respawned child.",
+          }
+        : null,
+    ].filter((item): item is { cid: string; title: string; subtitle: string } => {
+      if (!item || seen.has(item.cid)) return false;
+      seen.add(item.cid);
+      return true;
+    });
+  }, [state.filecoinCid, state.lineageSourceCid]);
 
   return (
     <div className="p-4 md:p-8">
@@ -193,6 +266,14 @@ export default function JudgeFlowPage() {
               className="rounded-lg border border-gray-700 px-4 py-2 text-sm font-mono text-gray-300 transition hover:border-gray-500"
             >
               Open Raw Logs
+            </Link>
+          )}
+          {state.runId && (
+            <Link
+              href={`/receipt/${encodeURIComponent(state.runId)}`}
+              className="rounded-lg border border-indigo-400/30 bg-indigo-400/10 px-4 py-2 text-sm font-mono text-indigo-300 transition hover:bg-indigo-400/15"
+            >
+              Open Receipt
             </Link>
           )}
         </div>
@@ -267,6 +348,19 @@ export default function JudgeFlowPage() {
         </div>
       </div>
 
+      {previewCids.length > 0 && (
+        <div className="mb-6 grid gap-4 lg:grid-cols-2">
+          {previewCids.map((preview) => (
+            <StorageInlinePreview
+              key={preview.cid}
+              cid={preview.cid}
+              title={preview.title}
+              subtitle={preview.subtitle}
+            />
+          ))}
+        </div>
+      )}
+
       <div className="rounded-xl border border-gray-800 bg-[#0d0d14] p-4">
         <div className="mb-4 text-xs uppercase tracking-wider text-gray-600">Timeline</div>
         <div className="space-y-3">
@@ -287,6 +381,16 @@ export default function JudgeFlowPage() {
                   <div>
                     <div className="font-mono text-sm text-gray-100">{step.label}</div>
                     <div className="text-xs text-gray-500">{formatTime(step.event?.at)}</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {STEP_BADGES[step.action].map((badge) => (
+                        <span
+                          key={`${step.action}-${badge.label}`}
+                          className={`rounded border px-2 py-1 text-[10px] font-mono uppercase tracking-wider ${badge.className}`}
+                        >
+                          {badge.label}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <span
