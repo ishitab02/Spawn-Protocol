@@ -12,7 +12,7 @@
  */
 
 import { type Address, type Hex, keccak256, toHex } from "viem";
-import { account, publicClient, walletClient } from "./chain.js";
+import { account, publicClient, sendTxAndWait, walletClient } from "./chain.js";
 
 // ERC-8004 Agent Registry — deployed on Base Sepolia
 const AGENT_REGISTRY_ADDRESS =
@@ -618,12 +618,13 @@ export async function submitReputationFeedback(
 ): Promise<string | null> {
   try {
     return await enqueueWrite(async () => {
-      const hash = await walletClient.writeContract({
+      const receipt = await sendTxAndWait({
         address: REPUTATION_REGISTRY_ADDRESS,
         abi: REPUTATION_REGISTRY_ABI,
         functionName: "giveFeedback",
         args: [agentId, BigInt(Math.min(Math.max(score, 0), 100)), tags, endpoint, comment],
       });
+      const hash = receipt.transactionHash;
       console.log(`[Reputation] Feedback submitted for agent ${agentId}: score=${score} tags=${tags} (tx: ${hash})`);
       return hash;
     });
@@ -738,13 +739,13 @@ export async function requestValidation(
 ): Promise<{ txHash: string; requestId?: bigint } | null> {
   try {
     return await enqueueWrite(async () => {
-      const hash = await walletClient.writeContract({
+      const receipt = await sendTxAndWait({
         address: VALIDATION_REGISTRY_ADDRESS,
         abi: VALIDATION_REGISTRY_ABI,
         functionName: "validationRequest",
         args: [agentId, validatorAddress, uri, contentHash, actionType],
       });
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      const hash = receipt.transactionHash;
       // Extract requestId from ValidationRequested event
       let requestId: bigint | undefined;
       for (const log of receipt.logs) {
@@ -773,12 +774,13 @@ export async function submitValidationResponse(
 ): Promise<string | null> {
   try {
     return await enqueueWrite(async () => {
-      const hash = await walletClient.writeContract({
+      const receipt = await sendTxAndWait({
         address: VALIDATION_REGISTRY_ADDRESS,
         abi: VALIDATION_REGISTRY_ABI,
         functionName: "validationResponse",
         args: [requestId, BigInt(Math.min(Math.max(score, 0), 100)), approved, comment],
       });
+      const hash = receipt.transactionHash;
       console.log(`[Validation] Response submitted for request ${requestId}: score=${score} approved=${approved} (tx: ${hash})`);
       return hash;
     });

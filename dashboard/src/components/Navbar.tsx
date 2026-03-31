@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/leaderboard", label: "Leaderboard", icon: "▲" },
   { href: "/timeline", label: "Timeline", icon: "≡" },
   { href: "/judge-flow", label: "Judge Flow", icon: "◇" },
+  { href: "/receipt", label: "Receipts", icon: "▣" },
   { href: "/logs", label: "Exec Log", icon: "◉" },
   { href: "/settings", label: "Settings", icon: "⚙" },
 ];
