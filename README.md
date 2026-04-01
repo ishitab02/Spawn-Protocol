@@ -6,6 +6,8 @@ An autonomous governance agent swarm. A human owner states their values once. A 
 
 **Live on:** Base Sepolia + Filecoin Calibration
 
+**License:** MIT
+
 ---
 
 ## The Problem
@@ -44,6 +46,19 @@ Owner stores governance values → ParentTreasury.sol
 ```
 
 Every vote is a real onchain transaction. Every termination produces a Filecoin-backed report. Every respawned child inherits its predecessor's lessons as Venice system prompt context.
+
+---
+
+## Sponsor SDKs Used
+
+These are the sponsor-facing integrations used directly in the submitted build.
+
+| Sponsor | SDK / Package | Where Used | Purpose |
+|---|---|---|---|
+| Protocol Labs / Filecoin | `@filoz/synapse-sdk` | `agent/src/filecoin.ts`, `dashboard/src/lib/storage-server.ts` | Stores agent logs, termination reports, swarm snapshots, identity metadata, and serves Filecoin-backed storage previews. |
+| Lit Protocol | `@lit-protocol/auth-helpers`, `@lit-protocol/constants`, `@lit-protocol/lit-node-client-nodejs` | `agent/src/lit.ts`, `agent/src/child.ts` | Encrypts vote rationales with time-locked access control and enables the post-vote reveal flow. |
+
+The rest of the stack, including Next.js, viem, and Foundry, supports the application but is not counted here as sponsor bounty SDK integration.
 
 ---
 
@@ -375,3 +390,25 @@ cd contracts && forge test
 - ENS is used in the backend for labels and text-record receipts.
 - The canonical judge flow runs end-to-end on live infra. End-to-end latency is approximately 237s due to Base Sepolia and Filecoin Calibration roundtrips — set `JUDGE_FLOW_TIMEOUT_MS` accordingly.
 - ERC-8004 validation is best-effort in the judge path and does not block a successful proof run.
+
+---
+
+## Team
+
+### Poulav Bhowmick
+
+- GitHub: https://github.com/PoulavBhowmick03
+- LinkedIn: https://www.linkedin.com/in/poulavb/
+- X: https://x.com/impoulav
+
+### Ishita
+
+- GitHub: https://github.com/ishitab02
+- LinkedIn: https://www.linkedin.com/in/ishitab02/
+- X: https://x.com/ishitaaaaw
+
+---
+
+## License
+
+This project is released under the MIT License. See [`LICENSE`](./LICENSE).
