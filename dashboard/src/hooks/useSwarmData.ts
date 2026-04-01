@@ -81,8 +81,8 @@ const EMPTY_META: SwarmMeta = {
 const CLIENT_CACHE_TTL = 12_000;
 const POLL_INTERVAL_MS = 20_000;
 
-let swarmCache: { data: SwarmResponse; fetchedAt: number } | null = null;
-let swarmRequest: Promise<SwarmResponse> | null = null;
+const swarmCache = new Map<string, { data: SwarmResponse; fetchedAt: number }>();
+const swarmRequests = new Map<string, Promise<SwarmResponse>>();
 
 function normalizeChild(c: any): ChildInfo {
   return {
@@ -112,36 +112,43 @@ function normalizeSwarmResponse(raw: RawSwarmResponse): SwarmResponse {
   };
 }
 
-async function fetchSwarmPayload(force = false): Promise<SwarmResponse> {
+async function fetchSwarmPayload(force = false, includeMeta = true): Promise<SwarmResponse> {
+  const cacheKey = includeMeta ? "full" : "lite";
   const now = Date.now();
-  if (!force && swarmCache && now - swarmCache.fetchedAt < CLIENT_CACHE_TTL) {
-    return swarmCache.data;
+  const cached = swarmCache.get(cacheKey);
+  if (!force && cached && now - cached.fetchedAt < CLIENT_CACHE_TTL) {
+    return cached.data;
   }
 
-  if (swarmRequest) return swarmRequest;
+  const inflight = swarmRequests.get(cacheKey);
+  if (inflight) return inflight;
 
-  swarmRequest = (async () => {
-    const res = await fetch("/api/swarm", { cache: "no-store" });
+  const request = (async () => {
+    const res = await fetch(`/api/swarm?meta=${includeMeta ? "1" : "0"}`, { cache: "no-store" });
     const data: RawSwarmResponse = await res.json();
     if (!res.ok) throw new Error(data.error || `API ${res.status}`);
     if (data.error) throw new Error(data.error);
 
     const normalized = normalizeSwarmResponse(data);
-    swarmCache = { data: normalized, fetchedAt: Date.now() };
+    swarmCache.set(cacheKey, { data: normalized, fetchedAt: Date.now() });
     return normalized;
   })();
+  swarmRequests.set(cacheKey, request);
 
   try {
-    return await swarmRequest;
+    return await request;
   } finally {
-    swarmRequest = null;
+    swarmRequests.delete(cacheKey);
   }
 }
 
-export function useSwarmData() {
-  const [children, setChildren] = useState<ChildInfo[]>(() => swarmCache?.data.children ?? []);
-  const [meta, setMeta] = useState<SwarmMeta>(() => swarmCache?.data.meta ?? EMPTY_META);
-  const [loading, setLoading] = useState(() => !swarmCache);
+export function useSwarmData(options?: { includeMeta?: boolean }) {
+  const includeMeta = options?.includeMeta ?? true;
+  const cacheKey = includeMeta ? "full" : "lite";
+  const initial = swarmCache.get(cacheKey);
+  const [children, setChildren] = useState<ChildInfo[]>(() => initial?.data.children ?? []);
+  const [meta, setMeta] = useState<SwarmMeta>(() => initial?.data.meta ?? EMPTY_META);
+  const [loading, setLoading] = useState(() => !initial);
   const [error, setError] = useState<string | null>(null);
   const [justVotedSet, setJustVotedSet] = useState<Set<string>>(new Set());
   const prevVoteCounts = useRef<Map<string, number>>(new Map());
@@ -150,11 +157,11 @@ export function useSwarmData() {
     try {
       const shouldShowLoading =
         !options?.background &&
-        !swarmCache &&
+        !swarmCache.get(cacheKey) &&
         children.length === 0;
       if (shouldShowLoading) setLoading(true);
 
-      const payload = await fetchSwarmPayload(options?.force);
+      const payload = await fetchSwarmPayload(options?.force, includeMeta);
       const enriched = payload.children;
 
       // Detect which children just had their vote count increase
@@ -188,18 +195,52 @@ export function useSwarmData() {
     } finally {
       setLoading(false);
     }
-  }, [children.length]);
+  }, [cacheKey, children.length, includeMeta]);
 
   useEffect(() => {
-    fetchData({ background: !!swarmCache });
+    fetchData({ background: !!swarmCache.get(cacheKey) });
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       fetchData({ force: true, background: true });
     }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [fetchData]);
+  }, [cacheKey, fetchData]);
 
   return { children, meta, loading, error, refetch: fetchData, justVotedSet };
+}
+
+export function useSwarmMeta() {
+  const cacheKey = "full";
+  const initial = swarmCache.get(cacheKey);
+  const [meta, setMeta] = useState<SwarmMeta>(() => initial?.data.meta ?? EMPTY_META);
+  const [loading, setLoading] = useState(() => !initial);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchMeta = useCallback(async (options?: { force?: boolean; background?: boolean }) => {
+    try {
+      if (!options?.background && !swarmCache.get(cacheKey)) {
+        setLoading(true);
+      }
+      const payload = await fetchSwarmPayload(options?.force, true);
+      setMeta(payload.meta);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch swarm metadata");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchMeta({ background: !!swarmCache.get(cacheKey) });
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      fetchMeta({ force: true, background: true });
+    }, 45_000);
+    return () => clearInterval(interval);
+  }, [fetchMeta]);
+
+  return { meta, loading, error, refetch: fetchMeta };
 }
 
 export function useChildData(childId: string) {

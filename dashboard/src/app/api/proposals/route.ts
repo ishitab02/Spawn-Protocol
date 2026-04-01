@@ -1,16 +1,13 @@
 import { NextResponse } from "next/server";
 import { serverClient, getCached, setCache } from "@/lib/server-client";
-import { GOVERNORS, CONTRACTS } from "@/lib/contracts";
-import { SpawnFactoryABI, ChildGovernorABI } from "@/lib/abis";
+import { GOVERNORS } from "@/lib/contracts";
+import { buildVoteSummaries, readAgentLogEntries } from "@/lib/agent-log-server";
 
 const CACHE_KEY = "proposals";
-const CACHE_TTL = 10_000; // 10s cache
+const CACHE_TTL = 20_000;
+const MAX_PROPOSALS_PER_GOVERNOR = 40;
 
 export const dynamic = "force-dynamic";
-
-function isJudgeProofLabel(label: string | null | undefined) {
-  return !!label && label.startsWith("judge-proof-");
-}
 
 export async function GET() {
   try {
@@ -33,12 +30,16 @@ export async function GET() {
       })
     );
 
-    // Fetch all proposals from all governors
+    const logEntries = await readAgentLogEntries().catch(() => []);
+    const voteSummaries = buildVoteSummaries(logEntries);
+
+    // Fetch recent proposals from all governors instead of replaying the full archive
     const allProposals: any[] = [];
     await Promise.all(
       counts.map(async ({ gov, count }) => {
         if (count === 0) return;
-        const ids = Array.from({ length: count }, (_, i) => BigInt(i + 1));
+        const start = Math.max(1, count - MAX_PROPOSALS_PER_GOVERNOR + 1);
+        const ids = Array.from({ length: count - start + 1 }, (_, i) => BigInt(start + i));
         const results = await Promise.all(
           ids.map(async (id) => {
             try {
@@ -76,7 +77,13 @@ export async function GET() {
                 daoBorderColor: gov.borderColor,
                 sourceDaoName: tallyMatch ? tallyMatch[1] : null,
                 tallySource: !!tallyMatch,
-                voters: [] as any[],
+                voters: (voteSummaries.byProposal.get(`${gov.slug}-${p.id.toString()}`) || []).map(
+                  (vote) => ({
+                    childLabel: vote.childLabel,
+                    childAddr: "0x0000000000000000000000000000000000000000",
+                    support: vote.support,
+                  })
+                ),
                 uid: `${gov.slug}-${p.id.toString()}`,
               };
             } catch {
@@ -88,79 +95,32 @@ export async function GET() {
       })
     );
 
-    // Fetch child vote histories
-    try {
-      const rawChildren = await serverClient.readContract({
-        address: CONTRACTS.SpawnFactory.address as `0x${string}`,
-        abi: SpawnFactoryABI,
-        functionName: "getActiveChildren",
-      });
-
-      const proposalMap = new Map<string, any>();
-      for (const p of allProposals) {
-        p.voters = [];
-        proposalMap.set(`${p.governorAddress.toLowerCase()}-${p.id}`, p);
+    for (const proposal of allProposals) {
+      const totalVotes =
+        Number(proposal.forVotes) +
+        Number(proposal.againstVotes) +
+        Number(proposal.abstainVotes);
+      if (totalVotes > 0 || proposal.voters.length === 0) {
+        continue;
       }
 
-      const childHistories = await Promise.all(
-        (rawChildren as any[]).map(async (child) => {
-          try {
-            const history = await serverClient.readContract({
-              address: child.childAddr,
-              abi: ChildGovernorABI,
-              functionName: "getVotingHistory",
-            });
-            return { child, history };
-          } catch {
-            return { child, history: [] as any[] };
-          }
-        })
-      );
-
-      for (const { child, history } of childHistories) {
-        if (isJudgeProofLabel(child.ensLabel)) {
-          continue;
-        }
-        const govAddr = child.governance.toLowerCase();
-        for (const vote of history as any[]) {
-          const matching = proposalMap.get(`${govAddr}-${vote.proposalId.toString()}`);
-          if (matching) {
-            matching.voters.push({
-              childLabel: child.ensLabel || "unknown",
-              childAddr: child.childAddr,
-              support: vote.support,
-            });
-          }
+      let forVotes = 0;
+      let againstVotes = 0;
+      let abstainVotes = 0;
+      for (const voter of proposal.voters) {
+        if (voter.support === 1) {
+          forVotes += 1;
+        } else if (voter.support === 0) {
+          againstVotes += 1;
+        } else {
+          abstainVotes += 1;
         }
       }
 
-      for (const proposal of allProposals) {
-        const totalVotes =
-          Number(proposal.forVotes) +
-          Number(proposal.againstVotes) +
-          Number(proposal.abstainVotes);
-        if (totalVotes > 0 || proposal.voters.length === 0) {
-          continue;
-        }
-
-        let forVotes = 0;
-        let againstVotes = 0;
-        let abstainVotes = 0;
-        for (const voter of proposal.voters) {
-          if (voter.support === 1) {
-            forVotes += 1;
-          } else if (voter.support === 0) {
-            againstVotes += 1;
-          } else {
-            abstainVotes += 1;
-          }
-        }
-
-        proposal.forVotes = String(forVotes);
-        proposal.againstVotes = String(againstVotes);
-        proposal.abstainVotes = String(abstainVotes);
-      }
-    } catch {}
+      proposal.forVotes = String(forVotes);
+      proposal.againstVotes = String(againstVotes);
+      proposal.abstainVotes = String(abstainVotes);
+    }
 
     // Sort newest first
     allProposals.sort((a, b) => {

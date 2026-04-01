@@ -3,10 +3,16 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { serverClient, getCached, setCache } from "@/lib/server-client";
 import { CONTRACTS } from "@/lib/contracts";
-import { SpawnFactoryABI, ChildGovernorABI } from "@/lib/abis";
+import { SpawnFactoryABI } from "@/lib/abis";
 import { fetchStorageObject } from "@/lib/storage-server";
+import {
+  buildAlignmentSummaries,
+  buildVoteSummaries,
+  getBaseLabel,
+  isoToUnixSeconds,
+  readAgentLogEntries,
+} from "@/lib/agent-log-server";
 
-const CACHE_KEY = "swarm:v2";
 const CACHE_TTL = 15_000;
 const ERC8004_CACHE_TTL = 90_000;
 const JUDGE_FLOW_PROXY_URL = process.env.JUDGE_FLOW_PROXY_URL?.replace(/\/$/, "");
@@ -221,45 +227,38 @@ async function resolveErc8004Ids(children: Array<{ ensLabel: string; childAddr: 
   return result;
 }
 
-async function enrichActiveChild(child: any) {
-  let alignmentScore = "0";
-  let voteCount = "0";
-  let lastVoteTimestamp = "0";
-  let forVotes = 0;
-  let againstVotes = 0;
-  let abstainVotes = 0;
-
-  try {
-    const [score, cnt, history] = await Promise.all([
-      serverClient.readContract({
-        address: child.childAddr,
-        abi: ChildGovernorABI,
-        functionName: "alignmentScore",
-      }),
-      serverClient.readContract({
-        address: child.childAddr,
-        abi: ChildGovernorABI,
-        functionName: "getVoteCount",
-      }),
-      serverClient.readContract({
-        address: child.childAddr,
-        abi: ChildGovernorABI,
-        functionName: "getVotingHistory",
-      }),
-    ]);
-
-    alignmentScore = (score as bigint).toString();
-    voteCount = (cnt as bigint).toString();
-    const votingHistory = history as any[];
-    if (votingHistory.length > 0) {
-      lastVoteTimestamp = votingHistory[votingHistory.length - 1].timestamp.toString();
+function getVoteStatsForLabel(
+  label: string,
+  voteSummaries: ReturnType<typeof buildVoteSummaries>["byChild"]
+) {
+  const lower = label.toLowerCase();
+  return (
+    voteSummaries.get(lower) ||
+    voteSummaries.get(getBaseLabel(lower)) || {
+      voteCount: 0,
+      forVotes: 0,
+      againstVotes: 0,
+      abstainVotes: 0,
+      lastVoteTimestamp: null,
     }
-    for (const vote of votingHistory) {
-      if (vote.support === 1) forVotes++;
-      else if (vote.support === 0) againstVotes++;
-      else abstainVotes++;
-    }
-  } catch {}
+  );
+}
+
+function getAlignmentForLabel(
+  label: string,
+  alignmentSummaries: ReturnType<typeof buildAlignmentSummaries>
+) {
+  const lower = label.toLowerCase();
+  return alignmentSummaries.get(lower) || alignmentSummaries.get(getBaseLabel(lower)) || null;
+}
+
+function enrichActiveChild(
+  child: any,
+  voteSummaries: ReturnType<typeof buildVoteSummaries>["byChild"],
+  alignmentSummaries: ReturnType<typeof buildAlignmentSummaries>
+) {
+  const voteStats = getVoteStatsForLabel(child.ensLabel, voteSummaries);
+  const alignment = getAlignmentForLabel(child.ensLabel, alignmentSummaries);
 
   return {
     id: child.id.toString(),
@@ -269,35 +268,22 @@ async function enrichActiveChild(child: any) {
     maxGasPerVote: child.maxGasPerVote.toString(),
     ensLabel: child.ensLabel,
     active: true,
-    alignmentScore,
-    voteCount,
-    lastVoteTimestamp,
-    forVotes,
-    againstVotes,
-    abstainVotes,
+    alignmentScore: String(alignment?.score ?? 0),
+    voteCount: String(voteStats.voteCount),
+    lastVoteTimestamp: isoToUnixSeconds(voteStats.lastVoteTimestamp),
+    forVotes: voteStats.forVotes,
+    againstVotes: voteStats.againstVotes,
+    abstainVotes: voteStats.abstainVotes,
   };
 }
 
-async function enrichTerminatedChild(child: any) {
-  let alignmentScore = "0";
-  let voteCount = "0";
-
-  try {
-    const [score, cnt] = await Promise.all([
-      serverClient.readContract({
-        address: child.childAddr,
-        abi: ChildGovernorABI,
-        functionName: "alignmentScore",
-      }),
-      serverClient.readContract({
-        address: child.childAddr,
-        abi: ChildGovernorABI,
-        functionName: "getVoteCount",
-      }),
-    ]);
-    alignmentScore = (score as bigint).toString();
-    voteCount = (cnt as bigint).toString();
-  } catch {}
+function enrichTerminatedChild(
+  child: any,
+  voteSummaries: ReturnType<typeof buildVoteSummaries>["byChild"],
+  alignmentSummaries: ReturnType<typeof buildAlignmentSummaries>
+) {
+  const voteStats = getVoteStatsForLabel(child.ensLabel, voteSummaries);
+  const alignment = getAlignmentForLabel(child.ensLabel, alignmentSummaries);
 
   return {
     id: child.id.toString(),
@@ -307,27 +293,37 @@ async function enrichTerminatedChild(child: any) {
     maxGasPerVote: child.maxGasPerVote.toString(),
     ensLabel: child.ensLabel,
     active: child.active,
-    alignmentScore,
-    voteCount,
-    lastVoteTimestamp: "0",
-    forVotes: 0,
-    againstVotes: 0,
-    abstainVotes: 0,
+    alignmentScore: String(alignment?.score ?? 0),
+    voteCount: String(voteStats.voteCount),
+    lastVoteTimestamp: isoToUnixSeconds(voteStats.lastVoteTimestamp),
+    forVotes: voteStats.forVotes,
+    againstVotes: voteStats.againstVotes,
+    abstainVotes: voteStats.abstainVotes,
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const cached = getCached<any>(CACHE_KEY);
+    const url = new URL(request.url);
+    const includeMeta = url.searchParams.get("meta") !== "0";
+    const cacheKey = includeMeta ? "swarm:v3:full" : "swarm:v3:lite";
+    const cached = getCached<any>(cacheKey);
     if (cached) return NextResponse.json(cached);
 
-    const activeRaw = (await serverClient.readContract({
-      address: CONTRACTS.SpawnFactory.address as `0x${string}`,
-      abi: SpawnFactoryABI,
-      functionName: "getActiveChildren",
-    })) as any[];
+    const [activeRaw, logEntries] = await Promise.all([
+      serverClient.readContract({
+        address: CONTRACTS.SpawnFactory.address as `0x${string}`,
+        abi: SpawnFactoryABI,
+        functionName: "getActiveChildren",
+      }) as Promise<any[]>,
+      readAgentLogEntries().catch(() => []),
+    ]);
+    const voteSummaries = buildVoteSummaries(logEntries);
+    const alignmentSummaries = buildAlignmentSummaries(logEntries);
 
-    const activeEnriched = await Promise.all(activeRaw.map(enrichActiveChild));
+    const activeEnriched = activeRaw.map((child) =>
+      enrichActiveChild(child, voteSummaries.byChild, alignmentSummaries)
+    );
 
     const totalCount = Number(
       await serverClient.readContract({
@@ -358,55 +354,69 @@ export async function GET() {
     const terminatedEnriched = await Promise.all(
       rawTerminated
         .filter((child): child is NonNullable<typeof child> => !!child && !activeIds.has(Number((child as any).id)))
-        .map(enrichTerminatedChild)
+        .map((child) => enrichTerminatedChild(child, voteSummaries.byChild, alignmentSummaries))
     );
 
     const children = [...activeEnriched, ...terminatedEnriched];
 
-    const [budgetMeta, erc8004Ids, metadataRows] = await Promise.all([
-      resolveSwarmBudgetMeta(),
-      resolveErc8004Ids(children),
-      Promise.all(
-        children.map(async (child) => {
-          const [delegationHash, revokedDelegation, filecoinIdentityCid] = await Promise.all([
-            readEnsTextRecord(child.ensLabel, "erc7715.delegation"),
-            readEnsTextRecord(child.ensLabel, "erc7715.delegation.revoked"),
-            readEnsTextRecord(child.ensLabel, "filecoin.identity"),
-          ]);
-
-          return {
-            label: child.ensLabel,
-            delegationHash,
-            revokedDelegation,
-            filecoinIdentityCid,
-          };
-        })
-      ),
-    ]);
-
-    const delegationHashes: Record<string, string> = {};
-    const revokedDelegations: string[] = [];
-    const filecoinIdentityCids: Record<string, string> = {};
-
-    for (const row of metadataRows) {
-      if (row.delegationHash) delegationHashes[row.label] = row.delegationHash;
-      if (row.revokedDelegation) revokedDelegations.push(row.label);
-      if (row.filecoinIdentityCid) filecoinIdentityCids[row.label] = row.filecoinIdentityCid;
-    }
-
-    const result = {
+    let result: any = {
       children,
       meta: {
-        filecoinStateCid: budgetMeta.filecoinStateCid,
-        budgetState: budgetMeta.budgetState,
-        delegationHashes,
-        revokedDelegations,
-        filecoinIdentityCids,
-        erc8004Ids,
+        filecoinStateCid: null,
+        budgetState: null,
+        delegationHashes: {},
+        revokedDelegations: [],
+        filecoinIdentityCids: {},
+        erc8004Ids: {},
       },
     };
 
-    setCache(CACHE_KEY, result, CACHE_TTL);
+    if (includeMeta) {
+      const [budgetMeta, erc8004Ids, metadataRows] = await Promise.all([
+        resolveSwarmBudgetMeta(),
+        resolveErc8004Ids(children),
+        Promise.all(
+          children.map(async (child) => {
+            const [delegationHash, revokedDelegation, filecoinIdentityCid] = await Promise.all([
+              readEnsTextRecord(child.ensLabel, "erc7715.delegation"),
+              readEnsTextRecord(child.ensLabel, "erc7715.delegation.revoked"),
+              readEnsTextRecord(child.ensLabel, "filecoin.identity"),
+            ]);
+
+            return {
+              label: child.ensLabel,
+              delegationHash,
+              revokedDelegation,
+              filecoinIdentityCid,
+            };
+          })
+        ),
+      ]);
+
+      const delegationHashes: Record<string, string> = {};
+      const revokedDelegations: string[] = [];
+      const filecoinIdentityCids: Record<string, string> = {};
+
+      for (const row of metadataRows) {
+        if (row.delegationHash) delegationHashes[row.label] = row.delegationHash;
+        if (row.revokedDelegation) revokedDelegations.push(row.label);
+        if (row.filecoinIdentityCid) filecoinIdentityCids[row.label] = row.filecoinIdentityCid;
+      }
+
+      result = {
+        children,
+        meta: {
+          filecoinStateCid: budgetMeta.filecoinStateCid,
+          budgetState: budgetMeta.budgetState,
+          delegationHashes,
+          revokedDelegations,
+          filecoinIdentityCids,
+          erc8004Ids,
+        },
+      };
+    }
+
+    setCache(cacheKey, result, CACHE_TTL);
     return NextResponse.json(result);
   } catch (err: any) {
     return NextResponse.json(

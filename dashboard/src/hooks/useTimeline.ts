@@ -23,24 +23,57 @@ export interface TimelineEvent {
   data: Record<string, unknown>;
 }
 
+const CLIENT_CACHE_TTL = 20_000;
+const POLL_INTERVAL_MS = 30_000;
+
+let timelineCache: { data: TimelineEvent[]; fetchedAt: number } | null = null;
+let timelineRequest: Promise<TimelineEvent[]> | null = null;
+
+function normalizeTimeline(data: any[]): TimelineEvent[] {
+  return data.map((e: any) => ({
+    ...e,
+    blockNumber: BigInt(e.blockNumber),
+    timestamp: e.timestamp ? BigInt(e.timestamp) : undefined,
+  }));
+}
+
+async function fetchTimeline(force = false): Promise<TimelineEvent[]> {
+  const now = Date.now();
+  if (!force && timelineCache && now - timelineCache.fetchedAt < CLIENT_CACHE_TTL) {
+    return timelineCache.data;
+  }
+
+  if (timelineRequest) return timelineRequest;
+
+  timelineRequest = (async () => {
+    const res = await fetch("/api/timeline", { cache: "no-store" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `API ${res.status}`);
+    if (data.error) throw new Error(data.error);
+
+    const normalized = normalizeTimeline(data);
+    timelineCache = { data: normalized, fetchedAt: Date.now() };
+    return normalized;
+  })();
+
+  try {
+    return await timelineRequest;
+  } finally {
+    timelineRequest = null;
+  }
+}
+
 export function useTimeline() {
-  const [events, setEvents] = useState<TimelineEvent[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [events, setEvents] = useState<TimelineEvent[]>(() => timelineCache?.data ?? []);
+  const [loading, setLoading] = useState(() => !timelineCache);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (options?: { force?: boolean; background?: boolean }) => {
     try {
-      const res = await fetch("/api/timeline");
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-
-      const parsed: TimelineEvent[] = data.map((e: any) => ({
-        ...e,
-        blockNumber: BigInt(e.blockNumber),
-        timestamp: e.timestamp ? BigInt(e.timestamp) : undefined,
-      }));
-
+      if (!options?.background && !timelineCache && events.length === 0) {
+        setLoading(true);
+      }
+      const parsed = await fetchTimeline(options?.force);
       setEvents(parsed);
       setError(null);
     } catch (err) {
@@ -51,9 +84,11 @@ export function useTimeline() {
   }, []);
 
   useEffect(() => {
-    setLoading(true);
-    fetchData();
-    const interval = setInterval(fetchData, 15000);
+    fetchData({ background: !!timelineCache });
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      fetchData({ force: true, background: true });
+    }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [fetchData]);
 

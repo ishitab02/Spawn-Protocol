@@ -29,29 +29,61 @@ export interface Proposal {
   uid: string;
 }
 
+const CLIENT_CACHE_TTL = 20_000;
+const POLL_INTERVAL_MS = 30_000;
+
+let proposalsCache: { data: Proposal[]; fetchedAt: number } | null = null;
+let proposalsRequest: Promise<Proposal[]> | null = null;
+
+function normalizeProposals(data: any[]): Proposal[] {
+  return data.map((p: any) => ({
+    ...p,
+    id: BigInt(p.id),
+    startTime: BigInt(p.startTime),
+    endTime: BigInt(p.endTime),
+    forVotes: BigInt(p.forVotes),
+    againstVotes: BigInt(p.againstVotes),
+    abstainVotes: BigInt(p.abstainVotes),
+  }));
+}
+
+async function fetchProposals(force = false): Promise<Proposal[]> {
+  const now = Date.now();
+  if (!force && proposalsCache && now - proposalsCache.fetchedAt < CLIENT_CACHE_TTL) {
+    return proposalsCache.data;
+  }
+
+  if (proposalsRequest) return proposalsRequest;
+
+  proposalsRequest = (async () => {
+    const res = await fetch("/api/proposals", { cache: "no-store" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `API ${res.status}`);
+    if (data.error) throw new Error(data.error);
+
+    const normalized = normalizeProposals(data);
+    proposalsCache = { data: normalized, fetchedAt: Date.now() };
+    return normalized;
+  })();
+
+  try {
+    return await proposalsRequest;
+  } finally {
+    proposalsRequest = null;
+  }
+}
+
 export function useProposals() {
-  const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [proposals, setProposals] = useState<Proposal[]>(() => proposalsCache?.data ?? []);
+  const [loading, setLoading] = useState(() => !proposalsCache);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (options?: { force?: boolean; background?: boolean }) => {
     try {
-      const res = await fetch("/api/proposals");
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-
-      // Convert string bigints back to bigint
-      const parsed: Proposal[] = data.map((p: any) => ({
-        ...p,
-        id: BigInt(p.id),
-        startTime: BigInt(p.startTime),
-        endTime: BigInt(p.endTime),
-        forVotes: BigInt(p.forVotes),
-        againstVotes: BigInt(p.againstVotes),
-        abstainVotes: BigInt(p.abstainVotes),
-      }));
-
+      if (!options?.background && !proposalsCache && proposals.length === 0) {
+        setLoading(true);
+      }
+      const parsed = await fetchProposals(options?.force);
       setProposals(parsed);
       setError(null);
     } catch (err) {
@@ -62,9 +94,11 @@ export function useProposals() {
   }, []);
 
   useEffect(() => {
-    setLoading(true);
-    fetchData();
-    const interval = setInterval(fetchData, 15000);
+    fetchData({ background: !!proposalsCache });
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      fetchData({ force: true, background: true });
+    }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [fetchData]);
 

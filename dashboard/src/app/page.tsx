@@ -1,7 +1,7 @@
 "use client";
 
 import { type Address } from "viem";
-import { useSwarmData } from "@/hooks/useSwarmData";
+import { useSwarmData, useSwarmMeta } from "@/hooks/useSwarmData";
 import { AgentCard } from "@/components/AgentCard";
 import { CONTRACTS, explorerAddress, formatAddress, storageViewerPath } from "@/lib/contracts";
 import { useChainContext } from "@/context/ChainContext";
@@ -9,7 +9,8 @@ import { useChainContext } from "@/context/ChainContext";
 const ERC8004_REGISTRY = "0x8004A818BFB912233c491871b3d84c89A494BD9e" as Address;
 
 export default function SwarmPage() {
-  const { children, meta, loading, error, justVotedSet } = useSwarmData();
+  const { children, loading, error, justVotedSet } = useSwarmData({ includeMeta: false });
+  const { meta } = useSwarmMeta();
   const { explorerBase } = useChainContext();
   const {
     budgetState,
