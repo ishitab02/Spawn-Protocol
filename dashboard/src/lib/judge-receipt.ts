@@ -2,7 +2,7 @@ import "server-only";
 
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { readAgentLogData } from "@/lib/agent-log-server";
+import { readAgentLogData, readGitHubAgentLogData } from "@/lib/agent-log-server";
 import { serverClient } from "@/lib/server-client";
 import { fetchStorageObject } from "@/lib/storage-server";
 
@@ -134,7 +134,10 @@ function safeReadJson<T>(path: string): T | null {
 
 async function readJudgeExecutionLogs(): Promise<JudgeExecutionLog[]> {
   const rawLog = await readAgentLogData();
-  return Array.isArray(rawLog?.executionLogs) ? rawLog.executionLogs : [];
+  const primaryLogs = Array.isArray(rawLog?.executionLogs) ? rawLog.executionLogs : [];
+  const githubLog = await readGitHubAgentLogData();
+  const githubLogs = Array.isArray(githubLog?.executionLogs) ? githubLog.executionLogs : [];
+  return chooseMoreCompleteJudgeLogs(primaryLogs, githubLogs);
 }
 
 async function readJudgeFlowState(): Promise<JudgeFlowState | null> {
@@ -209,6 +212,28 @@ function toBoolean(value: string | undefined): boolean | undefined {
   if (value === "true") return true;
   if (value === "false") return false;
   return undefined;
+}
+
+function countJudgeRunIds(logs: JudgeExecutionLog[]): number {
+  return new Set(
+    logs
+      .map((entry) => entry.judgeRunId)
+      .filter((runId): runId is string => Boolean(runId))
+  ).size;
+}
+
+function chooseMoreCompleteJudgeLogs(
+  primaryLogs: JudgeExecutionLog[],
+  githubLogs: JudgeExecutionLog[]
+): JudgeExecutionLog[] {
+  const primaryRunCount = countJudgeRunIds(primaryLogs);
+  const githubRunCount = countJudgeRunIds(githubLogs);
+
+  if (githubRunCount !== primaryRunCount) {
+    return githubRunCount > primaryRunCount ? githubLogs : primaryLogs;
+  }
+
+  return githubLogs.length > primaryLogs.length ? githubLogs : primaryLogs;
 }
 
 function normalizeEvent(log: JudgeExecutionLog): JudgeEvent {

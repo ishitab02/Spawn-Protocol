@@ -5,9 +5,14 @@ import { fetchStorageObject } from "@/lib/storage-server";
 
 const DATA_CACHE_KEY = "agent-log-data:v2";
 const DATA_CACHE_TTL = 10_000;
+const GITHUB_DATA_CACHE_KEY = "agent-log-data:github:v1";
+const GITHUB_DATA_CACHE_TTL = 300_000;
 
 const GITHUB_LOG_BRANCH = process.env.GITHUB_LOG_BRANCH || "pl_genesis";
-const GITHUB_URL = `https://raw.githubusercontent.com/PoulavBhowmick03/Spawn-Protocol/${GITHUB_LOG_BRANCH}/agent_log.json`;
+const GITHUB_URLS = [
+  `https://raw.githubusercontent.com/PoulavBhowmick03/Spawn-Protocol/${GITHUB_LOG_BRANCH}/agent_log.json`,
+  `https://cdn.jsdelivr.net/gh/PoulavBhowmick03/Spawn-Protocol@${GITHUB_LOG_BRANCH}/agent_log.json`,
+];
 const KNOWN_CID = "QmRKSPkg7MQuChCXkgRPqmsAhLG4Y7xf7nUo6N3AXr9wFx";
 const ENS_REGISTRY = "0x29170A43352D65329c462e6cDacc1c002419331D";
 const LOCAL_LOG_PATH = join(process.cwd(), "..", "agent_log.json");
@@ -89,6 +94,23 @@ async function readEnsAgentLogCid(): Promise<string> {
   }
 }
 
+export async function readGitHubAgentLogData(): Promise<any | null> {
+  const cached = getCached<any>(GITHUB_DATA_CACHE_KEY);
+  if (cached) return cached;
+
+  for (const url of GITHUB_URLS) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) continue;
+      const data = await res.json();
+      setCache(GITHUB_DATA_CACHE_KEY, data, GITHUB_DATA_CACHE_TTL);
+      return data;
+    } catch {}
+  }
+
+  return null;
+}
+
 export async function readAgentLogData(): Promise<any> {
   const cached = getCached<any>(DATA_CACHE_KEY);
   if (cached) return cached;
@@ -119,12 +141,10 @@ export async function readAgentLogData(): Promise<any> {
     return localData;
   }
 
-  const res = await fetch(GITHUB_URL, { signal: AbortSignal.timeout(6000) });
-  if (!res.ok) {
-    throw new Error(`GitHub HTTP ${res.status}`);
+  const data = await readGitHubAgentLogData();
+  if (!data) {
+    throw new Error("Failed to read agent logs from published sources");
   }
-
-  const data = await res.json();
   setCache(DATA_CACHE_KEY, data, DATA_CACHE_TTL);
   return data;
 }
