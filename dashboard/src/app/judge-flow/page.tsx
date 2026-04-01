@@ -250,7 +250,7 @@ export default function JudgeFlowPage() {
                   : "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
               }`}
             >
-              Budget {budget.policy} · {budget.parentEthBalance} ETH · Venice {budget.veniceTokens}/{budget.pauseTokens}
+              Budget {budget.policy} · {budget.parentEthBalance} ETH · Venice {budget.veniceTokens} tokens
             </div>
           )}
           <button

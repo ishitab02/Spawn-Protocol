@@ -87,11 +87,17 @@ export function useProposals() {
       setProposals(parsed);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch proposals");
+      // Keep the existing proposal list visible during transient background refresh failures.
+      // The page should only show an error when it has no data to render.
+      if (!options?.background && proposals.length === 0 && !proposalsCache) {
+        setError(err instanceof Error ? err.message : "Failed to fetch proposals");
+      } else {
+        setError(null);
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [proposals.length]);
 
   useEffect(() => {
     fetchData({ background: !!proposalsCache });

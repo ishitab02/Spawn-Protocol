@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { serverClient, getCached, setCache } from "@/lib/server-client";
 import { CONTRACTS } from "@/lib/contracts";
-import { SpawnFactoryABI } from "@/lib/abis";
+import { ChildGovernorABI, SpawnFactoryABI } from "@/lib/abis";
 import { fetchStorageObject } from "@/lib/storage-server";
 import {
   buildAlignmentSummaries,
@@ -66,8 +66,8 @@ const EMPTY_BUDGET_STATE = {
   pauseEth: "0.0150",
   veniceCalls: 0,
   veniceTokens: 0,
-  warningTokens: 200000,
-  pauseTokens: 350000,
+  warningTokens: 0,
+  pauseTokens: 0,
   activeChildren: 0,
   filecoinAvailable: false,
   pauseProposalCreation: false,
@@ -252,13 +252,80 @@ function getAlignmentForLabel(
   return alignmentSummaries.get(lower) || alignmentSummaries.get(getBaseLabel(lower)) || null;
 }
 
-function enrichActiveChild(
+function summarizeVotingHistory(history: Array<{ support: number; timestamp: bigint }>) {
+  let forVotes = 0;
+  let againstVotes = 0;
+  let abstainVotes = 0;
+
+  for (const vote of history) {
+    const support = Number(vote.support);
+    if (support === 1) forVotes += 1;
+    else if (support === 0) againstVotes += 1;
+    else abstainVotes += 1;
+  }
+
+  const lastVoteTimestamp =
+    history.length > 0 ? history[history.length - 1].timestamp : BigInt(0);
+
+  return {
+    voteCount: history.length,
+    forVotes,
+    againstVotes,
+    abstainVotes,
+    lastVoteTimestamp,
+  };
+}
+
+async function enrichActiveChild(
   child: any,
   voteSummaries: ReturnType<typeof buildVoteSummaries>["byChild"],
   alignmentSummaries: ReturnType<typeof buildAlignmentSummaries>
 ) {
   const voteStats = getVoteStatsForLabel(child.ensLabel, voteSummaries);
   const alignment = getAlignmentForLabel(child.ensLabel, alignmentSummaries);
+  let alignmentScore = Number(alignment?.score ?? 0);
+  let voteCount = voteStats.voteCount;
+  let forVotes = voteStats.forVotes;
+  let againstVotes = voteStats.againstVotes;
+  let abstainVotes = voteStats.abstainVotes;
+  let lastVoteTimestamp = BigInt(isoToUnixSeconds(voteStats.lastVoteTimestamp));
+
+  try {
+    const [onchainAlignment, onchainVoteCount, onchainHistory] = await Promise.all([
+      serverClient.readContract({
+        address: child.childAddr,
+        abi: ChildGovernorABI,
+        functionName: "alignmentScore",
+      }),
+      serverClient.readContract({
+        address: child.childAddr,
+        abi: ChildGovernorABI,
+        functionName: "getVoteCount",
+      }),
+      serverClient.readContract({
+        address: child.childAddr,
+        abi: ChildGovernorABI,
+        functionName: "getVotingHistory",
+      }),
+    ]);
+
+    alignmentScore = Number(onchainAlignment);
+    voteCount = Number(onchainVoteCount);
+
+    if (Array.isArray(onchainHistory)) {
+      const summarized = summarizeVotingHistory(
+        onchainHistory.map((vote: any) => ({
+          support: Number(vote.support),
+          timestamp: BigInt(vote.timestamp),
+        }))
+      );
+      voteCount = Number(onchainVoteCount ?? summarized.voteCount);
+      forVotes = summarized.forVotes;
+      againstVotes = summarized.againstVotes;
+      abstainVotes = summarized.abstainVotes;
+      lastVoteTimestamp = summarized.lastVoteTimestamp;
+    }
+  } catch {}
 
   return {
     id: child.id.toString(),
@@ -268,12 +335,12 @@ function enrichActiveChild(
     maxGasPerVote: child.maxGasPerVote.toString(),
     ensLabel: child.ensLabel,
     active: true,
-    alignmentScore: String(alignment?.score ?? 0),
-    voteCount: String(voteStats.voteCount),
-    lastVoteTimestamp: isoToUnixSeconds(voteStats.lastVoteTimestamp),
-    forVotes: voteStats.forVotes,
-    againstVotes: voteStats.againstVotes,
-    abstainVotes: voteStats.abstainVotes,
+    alignmentScore: String(alignmentScore),
+    voteCount: String(voteCount),
+    lastVoteTimestamp: String(lastVoteTimestamp),
+    forVotes,
+    againstVotes,
+    abstainVotes,
   };
 }
 
@@ -321,8 +388,8 @@ export async function GET(request: Request) {
     const voteSummaries = buildVoteSummaries(logEntries);
     const alignmentSummaries = buildAlignmentSummaries(logEntries);
 
-    const activeEnriched = activeRaw.map((child) =>
-      enrichActiveChild(child, voteSummaries.byChild, alignmentSummaries)
+    const activeEnriched = await Promise.all(
+      activeRaw.map((child) => enrichActiveChild(child, voteSummaries.byChild, alignmentSummaries))
     );
 
     const totalCount = Number(
@@ -399,7 +466,15 @@ export async function GET(request: Request) {
 
       for (const row of metadataRows) {
         if (row.delegationHash) delegationHashes[row.label] = row.delegationHash;
-        if (row.revokedDelegation) revokedDelegations.push(row.label);
+        // Only mark as revoked if the revoked hash matches the current delegation hash.
+        // A stale revoked marker from a previous incarnation of the same label must not
+        // shadow a fresh active delegation written by a respawned child.
+        if (
+          row.revokedDelegation &&
+          (!row.delegationHash || row.revokedDelegation === row.delegationHash)
+        ) {
+          revokedDelegations.push(row.label);
+        }
         if (row.filecoinIdentityCid) filecoinIdentityCids[row.label] = row.filecoinIdentityCid;
       }
 

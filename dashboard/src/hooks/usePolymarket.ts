@@ -69,7 +69,12 @@ export function usePolymarket() {
       setMarkets(parsed);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch Polymarket data");
+      // Preserve the last successful snapshot during background polling failures.
+      if (cache.current.length === 0) {
+        setError(err instanceof Error ? err.message : "Failed to fetch Polymarket data");
+      } else {
+        setError(null);
+      }
     } finally {
       setLoading(false);
     }

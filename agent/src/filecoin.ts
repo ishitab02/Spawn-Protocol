@@ -291,6 +291,27 @@ export async function storeVoteRationale(data: {
 }
 
 /**
+ * Store a completed judge flow state on Filecoin.
+ * Called after judge_flow_completed so the dashboard can fetch it via ENS text record
+ * "judge-flow.latest" → Filecoin CID when no local judge_flow_state.json is available.
+ * Returns pieceCid string, or null on failure.
+ */
+export async function storeJudgeFlowState(state: unknown): Promise<string | null> {
+  try {
+    return await uploadToFilecoin({
+      ...(state as object),
+      type: "judge_flow_state",
+      project: "spawn-protocol",
+      storage: "filecoin-calibration",
+      chain: 314159,
+      storedAt: new Date().toISOString(),
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Check whether Filecoin storage is available (env key set + Synapse init succeeded).
  */
 export async function isFilecoinAvailable(): Promise<boolean> {

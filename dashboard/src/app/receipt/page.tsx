@@ -27,8 +27,8 @@ function shortHash(hash?: string) {
   return `${hash.slice(0, 8)}…${hash.slice(-4)}`;
 }
 
-export default function ReceiptIndexPage() {
-  const receipts = listJudgeReceipts(24);
+export default async function ReceiptIndexPage() {
+  const receipts = await listJudgeReceipts(24);
 
   return (
     <div className="p-4 md:p-8">

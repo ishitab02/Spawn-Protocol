@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { serverClient, getCached, setCache } from "@/lib/server-client";
+import { fetchStorageObject } from "@/lib/storage-server";
 
 const DATA_CACHE_KEY = "agent-log-data:v2";
 const DATA_CACHE_TTL = 10_000;
@@ -10,6 +11,7 @@ const GITHUB_URL = `https://raw.githubusercontent.com/PoulavBhowmick03/Spawn-Pro
 const KNOWN_CID = "QmRKSPkg7MQuChCXkgRPqmsAhLG4Y7xf7nUo6N3AXr9wFx";
 const ENS_REGISTRY = "0x29170A43352D65329c462e6cDacc1c002419331D";
 const LOCAL_LOG_PATH = join(process.cwd(), "..", "agent_log.json");
+const PREFER_PUBLISHED_LOGS = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
 
 export interface AgentLogEntry {
   action?: string;
@@ -42,36 +44,28 @@ export interface ProposalVoterSummary {
   timestamp: string | null;
 }
 
-async function tryIPFS(cid: string): Promise<any | null> {
-  const gateways = [
-    `https://ipfs.filebase.io/ipfs/${cid}`,
-    `https://ipfs.io/ipfs/${cid}`,
-    `https://cloudflare-ipfs.com/ipfs/${cid}`,
-    `https://dweb.link/ipfs/${cid}`,
-  ];
-
-  for (const url of gateways) {
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
-      if (res.ok) return await res.json();
-    } catch {}
-  }
-
-  return null;
-}
-
-export async function readAgentLogData(): Promise<any> {
-  const cached = getCached<any>(DATA_CACHE_KEY);
-  if (cached) return cached;
-
-  if (existsSync(LOCAL_LOG_PATH)) {
-    const data = JSON.parse(readFileSync(LOCAL_LOG_PATH, "utf-8"));
-    setCache(DATA_CACHE_KEY, data, DATA_CACHE_TTL);
-    return data;
-  }
+function readLocalAgentLogData() {
+  if (!existsSync(LOCAL_LOG_PATH)) return null;
 
   try {
-    const cid = await serverClient.readContract({
+    return JSON.parse(readFileSync(LOCAL_LOG_PATH, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+async function tryStorageCid(cid: string): Promise<any | null> {
+  try {
+    const payload = await fetchStorageObject(cid);
+    return payload?.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function readEnsAgentLogCid(): Promise<string> {
+  try {
+    const value = await serverClient.readContract({
       address: ENS_REGISTRY as `0x${string}`,
       abi: [
         {
@@ -89,19 +83,40 @@ export async function readAgentLogData(): Promise<any> {
       args: ["parent", "ipfs.agent_log"],
     });
 
-    if (cid && cid !== KNOWN_CID) {
-      const data = await tryIPFS(cid as string);
-      if (data) {
-        setCache(DATA_CACHE_KEY, data, DATA_CACHE_TTL);
-        return data;
-      }
-    }
-  } catch {}
+    return (value as string) || "";
+  } catch {
+    return "";
+  }
+}
 
-  const ipfsData = await tryIPFS(KNOWN_CID);
-  if (ipfsData) {
-    setCache(DATA_CACHE_KEY, ipfsData, DATA_CACHE_TTL);
-    return ipfsData;
+export async function readAgentLogData(): Promise<any> {
+  const cached = getCached<any>(DATA_CACHE_KEY);
+  if (cached) return cached;
+
+  const localData = readLocalAgentLogData();
+  if (localData && !PREFER_PUBLISHED_LOGS) {
+    setCache(DATA_CACHE_KEY, localData, DATA_CACHE_TTL);
+    return localData;
+  }
+
+  const cid = await readEnsAgentLogCid();
+  if (cid) {
+    const data = await tryStorageCid(cid);
+    if (data) {
+      setCache(DATA_CACHE_KEY, data, DATA_CACHE_TTL);
+      return data;
+    }
+  }
+
+  const knownCidData = await tryStorageCid(KNOWN_CID);
+  if (knownCidData) {
+    setCache(DATA_CACHE_KEY, knownCidData, DATA_CACHE_TTL);
+    return knownCidData;
+  }
+
+  if (localData) {
+    setCache(DATA_CACHE_KEY, localData, DATA_CACHE_TTL);
+    return localData;
   }
 
   const res = await fetch(GITHUB_URL, { signal: AbortSignal.timeout(6000) });

@@ -230,7 +230,7 @@ export default function SwarmPage() {
                     {budgetState.parentEthBalance} ETH
                   </span>
                   <span className="text-[10px] font-mono text-gray-500">
-                    Venice {budgetState.veniceTokens}/{budgetState.pauseTokens}
+                    Venice {budgetState.veniceTokens} tokens
                   </span>
                 </>
               )}

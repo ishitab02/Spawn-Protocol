@@ -34,6 +34,7 @@ import {
   storeTerminationReport,
   storeSwarmStateSnapshot,
   storeAgentIdentityMetadata,
+  storeJudgeFlowState,
   isFilecoinAvailable,
   filecoinExplorerUrl,
 } from "./filecoin.js";
@@ -81,9 +82,6 @@ const JUDGE_PROOF_PROMPT =
 const RUNTIME_BUDGET_STATE_PATH = join(__dirname, "..", "..", "runtime_budget_state.json");
 const RUNTIME_BUDGET_WARNING_ETH = parseEther(process.env.RUNTIME_BUDGET_WARNING_ETH || "0.03");
 const RUNTIME_BUDGET_PAUSE_ETH = parseEther(process.env.RUNTIME_BUDGET_PAUSE_ETH || "0.015");
-const COMPUTE_BUDGET_WARNING_TOKENS = Number(process.env.COMPUTE_BUDGET_WARNING_TOKENS || 200_000);
-const COMPUTE_BUDGET_PAUSE_TOKENS = Number(process.env.COMPUTE_BUDGET_PAUSE_TOKENS || 350_000);
-
 type RuntimeBudgetPolicy = "normal" | "throttled" | "paused";
 
 type RuntimeBudgetState = {
@@ -116,8 +114,8 @@ let runtimeBudgetState: RuntimeBudgetState = {
   pauseEth: (Number(RUNTIME_BUDGET_PAUSE_ETH) / 1e18).toFixed(4),
   veniceCalls: 0,
   veniceTokens: 0,
-  warningTokens: COMPUTE_BUDGET_WARNING_TOKENS,
-  pauseTokens: COMPUTE_BUDGET_PAUSE_TOKENS,
+  warningTokens: 0,
+  pauseTokens: 0,
   activeChildren: 0,
   filecoinAvailable: false,
   pauseProposalCreation: false,
@@ -175,14 +173,6 @@ async function refreshRuntimeBudgetState(config: ChainConfig, context: string): 
     reasons.push("low_parent_eth_warning");
   }
 
-  if (swarmVeniceTokens >= COMPUTE_BUDGET_PAUSE_TOKENS) {
-    policy = "paused";
-    reasons.push("compute_budget_exceeded");
-  } else if (swarmVeniceTokens >= COMPUTE_BUDGET_WARNING_TOKENS && policy === "normal") {
-    policy = "throttled";
-    reasons.push("compute_budget_warning");
-  }
-
   if (!filecoinAvailable) {
     reasons.push("filecoin_unavailable");
   }
@@ -198,12 +188,15 @@ async function refreshRuntimeBudgetState(config: ChainConfig, context: string): 
     pauseEth: (Number(RUNTIME_BUDGET_PAUSE_ETH) / 1e18).toFixed(4),
     veniceCalls: swarmVeniceCalls,
     veniceTokens: swarmVeniceTokens,
-    warningTokens: COMPUTE_BUDGET_WARNING_TOKENS,
-    pauseTokens: COMPUTE_BUDGET_PAUSE_TOKENS,
+    // Venice usage is tracked for observability only and no longer gates execution.
+    warningTokens: 0,
+    pauseTokens: 0,
     activeChildren,
     filecoinAvailable,
-    pauseProposalCreation: policy !== "normal",
-    pauseScaling: policy === "paused",
+    // Keep proposal flow alive while throttled so children can still vote.
+    pauseProposalCreation: policy === "paused",
+    // Throttling trims non-essential background work before hard-pausing.
+    pauseScaling: policy !== "normal",
     pauseJudgeFlow: policy === "paused",
     lastUpdatedAt: new Date().toISOString(),
   };
@@ -1671,6 +1664,17 @@ async function executeJudgeFlow(config: ChainConfig, queuedState: JudgeFlowState
         lineageSourceCid: completed.lineageSourceCid,
       }
     );
+    // Persist completed state to Filecoin + mirror CID to ENS so the dashboard
+    // can fetch it in production without access to the local judge_flow_state.json.
+    try {
+      const jfCid = await storeJudgeFlowState(completed);
+      if (jfCid) {
+        console.log(`[Judge] Flow state → Filecoin: ${jfCid}`);
+        await setChildTextRecord("parent", "judge-flow.latest", jfCid);
+      }
+    } catch (err: any) {
+      console.warn(`[Judge] Filecoin state store failed: ${err?.message}`);
+    }
     try {
       await cleanupStaleJudgeChildren(config);
     } catch (cleanupErr: any) {
@@ -2458,7 +2462,7 @@ async function main() {
   await refreshRuntimeBudgetState(BASE_CONFIG, "startup");
   console.log(
     `[Budget] ${runtimeBudgetState.policy.toUpperCase()} | ETH ${runtimeBudgetState.parentEthBalance} | ` +
-    `Venice ${runtimeBudgetState.veniceTokens}/${runtimeBudgetState.pauseTokens} tokens | ` +
+    `Venice ${runtimeBudgetState.veniceTokens} tokens | ` +
     `Filecoin ${runtimeBudgetState.filecoinAvailable ? "online" : "offline"}`
   );
 
@@ -2531,13 +2535,15 @@ async function main() {
   const parentLoop = async () => {
     if (isJudgeRunActive()) {
       console.log("\n══ Parent Evaluation Cycle skipped during canonical judge run ══");
+      // Reschedule unconditionally so the chain survives judge flow early returns.
+      setTimeout(parentLoop, PARENT_CYCLE_MS);
       return;
     }
     console.log(`\n══ Parent Evaluation Cycle (${new Date().toISOString()}) ══`);
     await refreshRuntimeBudgetState(BASE_CONFIG, "parent_cycle");
     console.log(
       `[Budget] policy=${runtimeBudgetState.policy} | ETH=${runtimeBudgetState.parentEthBalance} | ` +
-      `Venice=${runtimeBudgetState.veniceTokens}/${runtimeBudgetState.pauseTokens} | ` +
+      `Venice=${runtimeBudgetState.veniceTokens} tokens | ` +
       `reasons=${runtimeBudgetState.reasons.join(",") || "healthy"}`
     );
 
@@ -2569,27 +2575,31 @@ async function main() {
     console.log(`\n[Venice] Total calls: ${veniceMetrics.totalCalls} | Tokens: ${veniceMetrics.totalTokens}`);
 
     // Venice: generate swarm status report
-    try {
-      const allChildren: { name: string; score: number; votes: number }[] = [];
-      for (const cfg of [BASE_CONFIG]) {
-        const kids = (await cfg.readClient.readContract({
-          address: cfg.factory, abi: SpawnFactoryABI, functionName: "getActiveChildren",
-        })) as any[];
-        for (const c of kids) {
-          try {
-            const score = Number(await cfg.readClient.readContract({ address: c.childAddr, abi: ChildGovernorABI, functionName: "alignmentScore" }));
-            const hist = (await cfg.readClient.readContract({ address: c.childAddr, abi: ChildGovernorABI, functionName: "getVotingHistory" })) as any[];
-            allChildren.push({ name: `${c.ensLabel}@${cfg.name}`, score, votes: hist.length });
-          } catch {}
+    if (runtimeBudgetState.policy !== "normal") {
+      console.log(`[Budget] Swarm report skipped (${runtimeBudgetState.policy})`);
+    } else {
+      try {
+        const allChildren: { name: string; score: number; votes: number }[] = [];
+        for (const cfg of [BASE_CONFIG]) {
+          const kids = (await cfg.readClient.readContract({
+            address: cfg.factory, abi: SpawnFactoryABI, functionName: "getActiveChildren",
+          })) as any[];
+          for (const c of kids) {
+            try {
+              const score = Number(await cfg.readClient.readContract({ address: c.childAddr, abi: ChildGovernorABI, functionName: "alignmentScore" }));
+              const hist = (await cfg.readClient.readContract({ address: c.childAddr, abi: ChildGovernorABI, functionName: "getVotingHistory" })) as any[];
+              allChildren.push({ name: `${c.ensLabel}@${cfg.name}`, score, votes: hist.length });
+            } catch {}
+          }
         }
-      }
-      if (allChildren.length > 0) {
-        const values = (await BASE_CONFIG.readClient.readContract({ address: BASE_CONFIG.treasury, abi: ParentTreasuryABI, functionName: "getGovernanceValues" })) as string;
-        const report = await generateSwarmReport(allChildren, values);
-        console.log(`\n[Swarm Report] ${report}`);
-        logParentAction("swarm_report", { agentCount: allChildren.length }, { report });
-      }
-    } catch {}
+        if (allChildren.length > 0) {
+          const values = (await BASE_CONFIG.readClient.readContract({ address: BASE_CONFIG.treasury, abi: ParentTreasuryABI, functionName: "getGovernanceValues" })) as string;
+          const report = await generateSwarmReport(allChildren, values);
+          console.log(`\n[Swarm Report] ${report}`);
+          logParentAction("swarm_report", { agentCount: allChildren.length }, { report });
+        }
+      } catch {}
+    }
 
     // === FILECOIN STATE SNAPSHOT (every cycle) ===
     // Checkpoint full swarm state to Filecoin Calibration Testnet.

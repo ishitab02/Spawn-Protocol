@@ -508,7 +508,13 @@ async function childCycle(
           console.log(`[Child:${childLabel}] Revealing rationale (Lit init failed — using stored hex)`);
         }
 
-        const hash = await childWalletClient.writeContract({
+        const revealChain = process.env.CHILD_CHAIN || "base-sepolia";
+        const revealWallet =
+          revealChain === "celo-sepolia"
+            ? childWalletClient
+            : walletClient;
+
+        const hash = await revealWallet.writeContract({
           address: childAddr,
           abi: ChildGovernorABI,
           functionName: "revealRationale",
@@ -519,7 +525,12 @@ async function childCycle(
         try { ipcLog(childLabel, "reveal_rationale", { proposalId: Number(proposalId) }, { txHash: hash }, hash); } catch {}
       } catch (revealErr: any) {
         // Non-fatal — will retry next cycle
-        console.log(`[Child:${childLabel}] Reveal failed for proposal ${proposalId}: ${revealErr?.message?.slice(0, 40)}`);
+        const revealMsg =
+          revealErr?.shortMessage ||
+          revealErr?.details ||
+          revealErr?.message ||
+          String(revealErr);
+        console.log(`[Child:${childLabel}] Reveal failed for proposal ${proposalId}: ${revealMsg.slice(0, 140)}`);
       }
     }
   } catch {}

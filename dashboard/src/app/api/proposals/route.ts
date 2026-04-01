@@ -33,6 +33,17 @@ export async function GET() {
     const logEntries = await readAgentLogEntries().catch(() => []);
     const voteSummaries = buildVoteSummaries(logEntries);
 
+    function getProposalVoters(daoSlug: string, proposalId: string) {
+      // Historical log summaries used "<dao>-dao-<proposalId>" for ENS/Lido/Uniswap
+      // while the proposals API uses governor slugs like "ens", "lido", and "uniswap".
+      // Accept both so proposal cards stay populated across old and new log snapshots.
+      return (
+        voteSummaries.byProposal.get(`${daoSlug}-${proposalId}`) ||
+        voteSummaries.byProposal.get(`${daoSlug}-dao-${proposalId}`) ||
+        []
+      );
+    }
+
     // Fetch recent proposals from all governors instead of replaying the full archive
     const allProposals: any[] = [];
     await Promise.all(
@@ -77,7 +88,7 @@ export async function GET() {
                 daoBorderColor: gov.borderColor,
                 sourceDaoName: tallyMatch ? tallyMatch[1] : null,
                 tallySource: !!tallyMatch,
-                voters: (voteSummaries.byProposal.get(`${gov.slug}-${p.id.toString()}`) || []).map(
+                voters: getProposalVoters(gov.slug, p.id.toString()).map(
                   (vote) => ({
                     childLabel: vote.childLabel,
                     childAddr: "0x0000000000000000000000000000000000000000",

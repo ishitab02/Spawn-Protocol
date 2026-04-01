@@ -347,8 +347,41 @@ export default function AgentDetailPage({ params }: PageProps) {
         ? client.readContract({ address: ERC8004_REGISTRY, abi: ERC8004_ABI, functionName: "getMetadata", args: [agentId, "lineage-memory"] }).catch(() => "")
         : Promise.resolve(""),
     ]).then(([del, rev, lineageSelf, lineageBase, lineageMetadata]) => {
-      if (del) try { setDelegation(JSON.parse(del as string)); } catch { setDelegation({ raw: del }); }
-      if (rev) try { setRevocation(JSON.parse(rev as string)); } catch { setRevocation({ raw: rev }); }
+      let parsedDelegation: any = null;
+      let parsedRevocation: any = null;
+
+      if (del) {
+        try {
+          parsedDelegation = JSON.parse(del as string);
+        } catch {
+          parsedDelegation = { raw: del };
+        }
+      }
+
+      if (rev) {
+        try {
+          parsedRevocation = JSON.parse(rev as string);
+        } catch {
+          parsedRevocation = { raw: rev };
+        }
+      }
+
+      setDelegation(parsedDelegation);
+
+      const delegationHash =
+        parsedDelegation && typeof parsedDelegation === "object" ? parsedDelegation.hash : null;
+      const revocationHash =
+        parsedRevocation && typeof parsedRevocation === "object" ? parsedRevocation.hash : null;
+
+      if (
+        parsedRevocation &&
+        (!delegationHash || !revocationHash || revocationHash === delegationHash)
+      ) {
+        setRevocation(parsedRevocation);
+      } else {
+        setRevocation(null);
+      }
+
       const cid = (lineageSelf || lineageBase || lineageMetadata) as string;
       if (cid) {
         setLineageMemoryCid(cid);

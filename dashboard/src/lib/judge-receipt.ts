@@ -2,6 +2,9 @@ import "server-only";
 
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+import { readAgentLogData } from "@/lib/agent-log-server";
+import { serverClient } from "@/lib/server-client";
+import { fetchStorageObject } from "@/lib/storage-server";
 
 export type JudgeEvent = {
   action: string;
@@ -102,10 +105,23 @@ export type JudgeReceipt = {
   executionLogs: JudgeExecutionLog[];
 };
 
+const JUDGE_FLOW_PROXY_URL = process.env.JUDGE_FLOW_PROXY_URL?.replace(/\/$/, "");
 const CONTROL_PATH =
   process.env.JUDGE_FLOW_CONTROL_PATH ||
   join(process.cwd(), "..", "judge_flow_state.json");
-const LOG_PATH = join(process.cwd(), "..", "agent_log.json");
+const ENS_REGISTRY = "0x29170A43352D65329c462e6cDacc1c002419331D";
+const ENS_REGISTRY_ABI = [
+  {
+    type: "function",
+    name: "getTextRecord",
+    stateMutability: "view",
+    inputs: [
+      { name: "label", type: "string" },
+      { name: "key", type: "string" },
+    ],
+    outputs: [{ name: "", type: "string" }],
+  },
+] as const;
 
 function safeReadJson<T>(path: string): T | null {
   if (!existsSync(path)) return null;
@@ -116,9 +132,64 @@ function safeReadJson<T>(path: string): T | null {
   }
 }
 
-function readJudgeExecutionLogs(): JudgeExecutionLog[] {
-  const rawLog = safeReadJson<{ executionLogs?: JudgeExecutionLog[] }>(LOG_PATH);
-  return rawLog?.executionLogs ?? [];
+async function readJudgeExecutionLogs(): Promise<JudgeExecutionLog[]> {
+  const rawLog = await readAgentLogData();
+  return Array.isArray(rawLog?.executionLogs) ? rawLog.executionLogs : [];
+}
+
+async function readJudgeFlowState(): Promise<JudgeFlowState | null> {
+  // 1. Local file (swarm running on the same machine as the dashboard)
+  if (existsSync(CONTROL_PATH)) {
+    return safeReadJson<JudgeFlowState>(CONTROL_PATH);
+  }
+
+  // 2. Proxy URL (swarm running on Railway/VPS, set JUDGE_FLOW_PROXY_URL)
+  if (JUDGE_FLOW_PROXY_URL) {
+    try {
+      const res = await fetch(`${JUDGE_FLOW_PROXY_URL}/judge-flow`, {
+        cache: "no-store",
+        headers: { accept: "application/json" },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && typeof data === "object" && data.runId) return data as JudgeFlowState;
+      }
+    } catch {}
+  }
+
+  // 3. Filecoin via ENS text record "judge-flow.latest" (fully decentralised fallback)
+  try {
+    const cid = await serverClient.readContract({
+      address: ENS_REGISTRY as `0x${string}`,
+      abi: ENS_REGISTRY_ABI,
+      functionName: "getTextRecord",
+      args: ["parent", "judge-flow.latest"],
+    });
+    if (cid && typeof cid === "string" && cid.length > 0) {
+      const payload = await fetchStorageObject(cid);
+      if (payload?.data && typeof payload.data === "object") {
+        return payload.data as JudgeFlowState;
+      }
+    }
+  } catch {}
+
+  return null;
+}
+
+async function fetchProxyJudgeReceipt(runId: string): Promise<JudgeReceipt | null> {
+  if (!JUDGE_FLOW_PROXY_URL) return null;
+
+  try {
+    const res = await fetch(`${JUDGE_FLOW_PROXY_URL}/receipt/${encodeURIComponent(runId)}`, {
+      cache: "no-store",
+      headers: { accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data && typeof data === "object" ? (data as JudgeReceipt) : null;
+  } catch {
+    return null;
+  }
 }
 
 function extractDetailValue(details: string | undefined, key: string): string | undefined {
@@ -174,29 +245,31 @@ function dedupeEvents(
   return [...byAction.values()].sort((a, b) => a.at.localeCompare(b.at));
 }
 
-export function getJudgeReceipt(runId: string): JudgeReceipt | null {
-  const executionLogs = readJudgeExecutionLogs()
+function buildJudgeReceipt(
+  runId: string,
+  executionLogs: JudgeExecutionLog[],
+  currentState: JudgeFlowState | null
+): JudgeReceipt | null {
+  const runLogs = executionLogs
     .filter((entry) => entry.judgeRunId === runId)
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const stateForRun = currentState?.runId === runId ? currentState : null;
 
-  const state = safeReadJson<JudgeFlowState>(CONTROL_PATH);
-  const currentState = state?.runId === runId ? state : null;
+  if (!stateForRun && runLogs.length === 0) return null;
 
-  if (!currentState && executionLogs.length === 0) return null;
-
-  const eventByAction = new Map(executionLogs.map((entry) => [entry.action, entry]));
+  const eventByAction = new Map(runLogs.map((entry) => [entry.action, entry]));
   const voteLog = eventByAction.get("judge_vote_cast");
   const alignmentLog = eventByAction.get("judge_alignment_forced");
   const filecoinLog = eventByAction.get("judge_termination_report_filecoin");
   const validationLog = eventByAction.get("judge_validation_written");
   const respawnLog = eventByAction.get("judge_child_respawned");
 
-  const startedAt = currentState?.startedAt ?? executionLogs[0]?.timestamp;
+  const startedAt = stateForRun?.startedAt ?? runLogs[0]?.timestamp;
   const completedAt =
-    currentState?.completedAt ??
-    executionLogs[executionLogs.length - 1]?.timestamp;
+    stateForRun?.completedAt ??
+    runLogs[runLogs.length - 1]?.timestamp;
   const durationMs =
-    currentState?.durationMs ??
+    stateForRun?.durationMs ??
     (startedAt && completedAt
       ? new Date(completedAt).getTime() - new Date(startedAt).getTime()
       : undefined);
@@ -204,66 +277,68 @@ export function getJudgeReceipt(runId: string): JudgeReceipt | null {
   return {
     runId,
     status:
-      currentState?.status ??
-      (executionLogs.some((entry) => entry.status === "failed")
+      stateForRun?.status ??
+      (runLogs.some((entry) => entry.status === "failed")
         ? "failed"
-        : executionLogs.some((entry) => entry.action === "judge_flow_completed")
+        : runLogs.some((entry) => entry.action === "judge_flow_completed")
         ? "completed"
         : "running"),
     governor:
-      currentState?.governor ??
+      stateForRun?.governor ??
       extractDetailValue(eventByAction.get("judge_child_spawned")?.details, "governor") ??
       "uniswap",
     proofChildLabel:
-      currentState?.proofChildLabel ??
+      stateForRun?.proofChildLabel ??
       eventByAction.get("judge_child_spawned")?.ensLabel ??
       extractDetailValue(eventByAction.get("judge_child_spawned")?.details, "ensLabel"),
     proofChildAgentId:
-      currentState?.proofChildAgentId ??
+      stateForRun?.proofChildAgentId ??
       extractDetailValue(alignmentLog?.details, "erc8004AgentId"),
     respawnedChildLabel:
-      currentState?.respawnedChildLabel ??
+      stateForRun?.respawnedChildLabel ??
       respawnLog?.respawnedChild ??
       extractDetailValue(respawnLog?.details, "respawnedChild"),
-    respawnedChildAgentId: currentState?.respawnedChildAgentId,
+    respawnedChildAgentId: stateForRun?.respawnedChildAgentId,
     proposalId:
-      currentState?.proposalId ??
+      stateForRun?.proposalId ??
       extractDetailValue(voteLog?.details, "proposalId"),
     forcedScore:
-      currentState?.forcedScore ??
+      stateForRun?.forcedScore ??
       toNumber(extractDetailValue(alignmentLog?.details, "forcedScore")) ??
       15,
     startedAt,
     completedAt,
     durationMs,
-    failureReason: currentState?.failureReason,
-    filecoinCid: currentState?.filecoinCid ?? filecoinLog?.filecoinCid,
-    filecoinUrl: currentState?.filecoinUrl ?? filecoinLog?.filecoinUrl,
+    failureReason:
+      stateForRun?.failureReason ??
+      (runLogs.find((entry) => entry.status === "failed")?.details || undefined),
+    filecoinCid: stateForRun?.filecoinCid ?? filecoinLog?.filecoinCid,
+    filecoinUrl: stateForRun?.filecoinUrl ?? filecoinLog?.filecoinUrl,
     validationRequestId:
-      currentState?.validationRequestId ?? validationLog?.validationRequestId,
+      stateForRun?.validationRequestId ?? validationLog?.validationRequestId,
     validationTxHash:
-      currentState?.validationTxHash ?? validationLog?.txHashes?.[0],
+      stateForRun?.validationTxHash ?? validationLog?.txHashes?.[0],
     validationResponseTxHash:
-      currentState?.validationResponseTxHash ??
+      stateForRun?.validationResponseTxHash ??
       validationLog?.txHash ??
       validationLog?.txHashes?.[1],
     reputationTxHash:
-      currentState?.reputationTxHash ??
+      stateForRun?.reputationTxHash ??
       eventByAction.get("judge_reputation_written")?.txHash,
     alignmentTxHash:
-      currentState?.alignmentTxHash ?? alignmentLog?.txHash,
+      stateForRun?.alignmentTxHash ?? alignmentLog?.txHash,
     terminationTxHash:
-      currentState?.terminationTxHash ??
+      stateForRun?.terminationTxHash ??
       eventByAction.get("judge_child_terminated")?.txHash,
     proposalTxHash:
-      currentState?.proposalTxHash ??
+      stateForRun?.proposalTxHash ??
       eventByAction.get("judge_proposal_seeded")?.txHash,
     respawnTxHash:
-      currentState?.respawnTxHash ?? respawnLog?.txHash,
+      stateForRun?.respawnTxHash ?? respawnLog?.txHash,
     voteTxHash:
-      currentState?.voteTxHash ?? voteLog?.txHash,
+      stateForRun?.voteTxHash ?? voteLog?.txHash,
     lineageSourceCid:
-      currentState?.lineageSourceCid ??
+      stateForRun?.lineageSourceCid ??
       respawnLog?.lineageSourceCid ??
       filecoinLog?.lineageSourceCid,
     decision: extractDetailValue(voteLog?.details, "decision"),
@@ -271,13 +346,34 @@ export function getJudgeReceipt(runId: string): JudgeReceipt | null {
     reasoningHash: extractDetailValue(voteLog?.details, "reasoningHash"),
     veniceTokensUsed: toNumber(extractDetailValue(voteLog?.details, "veniceTokensUsed")),
     veniceCallsUsed: toNumber(extractDetailValue(voteLog?.details, "veniceCallsUsed")),
-    events: dedupeEvents(currentState?.events, executionLogs),
-    executionLogs,
+    events: dedupeEvents(stateForRun?.events, runLogs),
+    executionLogs: runLogs,
   };
 }
 
-export function listJudgeReceiptRunIds(limit = 20): string[] {
-  const executionLogs = readJudgeExecutionLogs();
+export async function getJudgeReceipt(
+  runId: string,
+  options?: { preferProxy?: boolean }
+): Promise<JudgeReceipt | null> {
+  const preferProxy = options?.preferProxy ?? true;
+  if (preferProxy) {
+    const proxyReceipt = await fetchProxyJudgeReceipt(runId);
+    if (proxyReceipt) return proxyReceipt;
+  }
+
+  const [executionLogs, currentState] = await Promise.all([
+    readJudgeExecutionLogs(),
+    readJudgeFlowState(),
+  ]);
+  return buildJudgeReceipt(runId, executionLogs, currentState);
+}
+
+export async function listJudgeReceiptRunIds(limit = 20): Promise<string[]> {
+  const [executionLogs, state] = await Promise.all([
+    readJudgeExecutionLogs(),
+    readJudgeFlowState(),
+  ]);
+
   const ordered = [...executionLogs]
     .filter((entry) => entry.judgeRunId)
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
@@ -293,7 +389,6 @@ export function listJudgeReceiptRunIds(limit = 20): string[] {
     if (runIds.length >= limit) break;
   }
 
-  const state = safeReadJson<JudgeFlowState>(CONTROL_PATH);
   if (state?.runId && !seen.has(state.runId) && runIds.length < limit) {
     runIds.unshift(state.runId);
   }
@@ -301,9 +396,15 @@ export function listJudgeReceiptRunIds(limit = 20): string[] {
   return runIds;
 }
 
-export function listJudgeReceipts(limit = 20): JudgeReceipt[] {
-  return listJudgeReceiptRunIds(limit)
-    .map((runId) => getJudgeReceipt(runId))
+export async function listJudgeReceipts(limit = 20): Promise<JudgeReceipt[]> {
+  const [executionLogs, state, runIds] = await Promise.all([
+    readJudgeExecutionLogs(),
+    readJudgeFlowState(),
+    listJudgeReceiptRunIds(limit),
+  ]);
+
+  return runIds
+    .map((runId) => buildJudgeReceipt(runId, executionLogs, state))
     .filter((receipt): receipt is JudgeReceipt => Boolean(receipt))
     .sort((a, b) => {
       const aTime = a.startedAt ?? a.completedAt ?? "";
